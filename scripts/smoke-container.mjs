@@ -75,19 +75,20 @@ async function waitHealthy() {
 try {
   // Pass the generated key through the child environment, never command arguments.
   await docker(['run', '--detach', '--name', name, '--read-only', '--cap-drop', 'ALL',
-    '--security-opt', 'no-new-privileges', '--memory', '256m', '--init',
+    '--security-opt', 'no-new-privileges', '--memory', '256m', '--memory-swap', '256m', '--cpus', '1', '--pids-limit', '64', '--init',
     '--publish', `127.0.0.1:${port}:5055`, '--env', 'PUBLIC_ORIGIN', '--env', 'HOST_ACCESS_KEY',
     '--env', 'EDITOR_ACCESS=private',
     '--health-interval', '1s', image], { env: { ...process.env, PUBLIC_ORIGIN: origin, HOST_ACCESS_KEY: hostKey } });
   await waitHealthy();
 
   const inspect = JSON.parse((await docker(['inspect', '--format',
-    '{"user":{{json .Config.User}},"readOnly":{{json .HostConfig.ReadonlyRootfs}},"memory":{{json .HostConfig.Memory}},"capDrop":{{json .HostConfig.CapDrop}},"security":{{json .HostConfig.SecurityOpt}},"init":{{json .HostConfig.Init}},"ports":{{json .NetworkSettings.Ports}}}', name])).stdout);
-  assert.equal(inspect.user, 'node'); assert.equal(inspect.readOnly, true);
+    '{"user":{{json .Config.User}},"readOnly":{{json .HostConfig.ReadonlyRootfs}},"memory":{{json .HostConfig.Memory}},"swap":{{json .HostConfig.MemorySwap}},"cpu":{{json .HostConfig.NanoCpus}},"pids":{{json .HostConfig.PidsLimit}},"capDrop":{{json .HostConfig.CapDrop}},"security":{{json .HostConfig.SecurityOpt}},"init":{{json .HostConfig.Init}},"ports":{{json .NetworkSettings.Ports}}}', name])).stdout);
+  assert.equal(inspect.user, '1000:1000'); assert.equal(inspect.readOnly, true);
   assert.equal(inspect.memory, 256 * 1024 * 1024); assert.equal(inspect.init, true);
+  assert.equal(inspect.swap, inspect.memory); assert.equal(inspect.cpu, 1e9); assert.equal(inspect.pids, 64);
   assert.ok(inspect.capDrop.includes('ALL')); assert.ok(inspect.security.includes('no-new-privileges'));
   assert.equal(inspect.ports['5055/tcp'][0].HostIp, '127.0.0.1');
-  assert.notEqual((await docker(['exec', name, 'id', '-u'])).stdout.trim(), '0');
+  assert.equal((await docker(['exec', name, '/nodejs/bin/node', '-e', 'console.log(process.getuid())'])).stdout.trim(), '1000');
   console.log('PASS: non-root container with read-only filesystem and resource bounds');
 
   const anonymous = await fetch(origin + '/');
