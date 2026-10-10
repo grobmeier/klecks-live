@@ -14,6 +14,11 @@ stop, absolute expiry, presenter grace, authentication timeout, excessive payloa
 frame-rate bounds, restart invalidation, a 25-viewer synthetic group and an
 intentionally stalled reader. These are local connections with synthetic pixels.
 
+Capture timing checks ensure encoding consumes part of the frame interval.
+Viewer fixtures hold decodes open while newer frames arrive, checking that
+completed frames still paint, only the latest pending frame is decoded, and
+session end or an epoch change discards in-flight stale images.
+
 Presenter script fixtures also check rejected-key correction, whitespace handling,
 duplicate-submit prevention, retry after network failure and session startup
 when browser storage is unavailable. These exercise the actual event handlers
@@ -210,3 +215,30 @@ logs. Routing, health/status monitoring and resource policy are enabled in the
 infrastructure inventory. Actual browser sign-in/remember/forget, physical
 iPad/Pencil latency, background recovery and 30-minute endurance still require
 device acceptance. These automated checks do not measure production capacity.
+
+## Stream and viewer-fit preparation on 10 October 2026
+
+The user tested with normal-profile and incognito Chrome on the same Mac.
+The public pilot was configured for 8 fps. The prepared changes remove an extra
+post-encoding interval and prevent continuous incoming updates from starving
+viewer painting. The viewer now enlarges smaller images to fill available space
+with proportional letterboxing. The Aegis policy change to 16 fps is prepared
+separately; it does not take effect until an approved container recreation.
+
+All 58 app tests and syntax checks pass. An isolated Chrome 154.0.8037.98 review
+used the actual publisher, relay and viewer with neutral 640×400 drawings at
+16 fps over loopback. During a three-second continuous update sequence, the
+median send interval was 64 ms and the 95th percentile was 65 ms. Every emitted
+frame reached the viewer, including the final frame. Send-to-DOM time was
+approximately 2 ms; this excludes capture waiting, encoding and physical display
+latency and is not an Internet or Pencil latency measurement.
+
+Screenshots at 1920×1080, 1440×900, 768×1024 and 390×844 show the enlarged
+landscape image, a round reference circle and all four image borders. A 400×640
+portrait image and the fullscreen action also passed, without overflow.
+The isolated viewer reported no console errors or warnings. Review artifacts
+contain only synthetic pixels and remain under ignored `output/playwright/`.
+
+Linux container verification, online activation and physical-device performance
+must be recorded separately. Increased frequency can increase bandwidth while
+drawing; image, queue, viewer, CPU and memory limits remain bounded.

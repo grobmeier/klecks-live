@@ -142,6 +142,20 @@ cannot be revoked. Forgetting a device does not reload or discard its drawing.
 
 ## Operational limits
 
+`FRAME_RATE` controls smoothness without changing the viewer's displayed size.
+For a smoother pilot, try 16 fps (a 62.5 ms capture interval) while retaining the
+existing image-size limit. Encoding time counts toward that interval; slow
+encoders and congested sockets reduce the actual rate instead of accumulating
+work. Only one encode and the newest pending view are kept. Viewers paint each
+completed decode before decoding their newest pending frame, so continuous
+updates do not starve the display.
+
+The viewer enlarges or shrinks the received image to fill the available window
+while preserving the presenter's aspect ratio. Fullscreen provides more space.
+This does not transmit more pixels; enlarging a low-resolution image can soften
+fine details. Raising `MAX_IMAGE_EDGE` separately increases encoding and
+bandwidth costs. Change one setting at a time and check actual device behaviour.
+
 Complete images multiply outbound bandwidth by the audience size. One 100 KiB
 image at 10 fps to 25 viewers is roughly 24 MiB/s before protocol overhead.
 Measure real drawings, Wi-Fi conditions and available bandwidth before promising
