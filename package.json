@@ -1,0 +1,20 @@
+{
+  "name": "live-draw",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "prepare:klecks": "node scripts/prepare-klecks.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node server/index.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:container": "node scripts/smoke-container.mjs",
+    "prepare:lan": "node scripts/prepare-lan.mjs",
+    "start:lan": "node scripts/start-lan.mjs",
+    "test:lan": "node scripts/smoke-lan.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": { "ws": "8.22.0" }
+}

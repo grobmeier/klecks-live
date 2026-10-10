@@ -1,0 +1,269 @@
+diff --git a/src/app/script/app/kl-app.ts b/src/app/script/app/kl-app.ts
+index bea10c1..4851205 100644
+--- a/src/app/script/app/kl-app.ts
++++ b/src/app/script/app/kl-app.ts
+@@ -128,6 +128,7 @@ function getToolspaceLayout(uiHeight: number): {
+ type TKlAppOptionsEmbed = {
+     url: string;
+     enableImageDropperImport?: boolean; // default false
++    enableCanvasResize?: boolean; // default false
+     onSubmit: (onSuccess: () => void, onError: () => void) => void;
+ };
+ 
+@@ -1676,6 +1677,7 @@ export class KlApp {
+             klCanvas: this.klCanvas,
+             getCurrentLayerIndex: () => currentLayerIndex,
+             isEmbed: !!this.embed,
++            enableCanvasResize: !!this.embed?.enableCanvasResize,
+             statusOverlay: this.statusOverlay,
+             onCanvasChanged: () => {
+                 this.easelProjectUpdater.update();
+@@ -2365,6 +2367,12 @@ export class KlApp {
+         return await canvasToBlob(this.klCanvas.getCanvas(), 'image/png');
+     }
+ 
++    subscribeViewport(
++        listener: import('../klecks/ui/project-viewport/project-viewport').TViewportListener,
++    ): () => void {
++        return this.easel.subscribeViewport(listener);
++    }
++
+     getPSD = async (): Promise<Blob> => {
+         return await klCanvasToPsdBlob(this.klCanvas, false);
+     };
+diff --git a/src/app/script/embed/bootstrap/embed-wrapper.ts b/src/app/script/embed/bootstrap/embed-wrapper.ts
+index 5d1d41c..f45c308 100644
+--- a/src/app/script/embed/bootstrap/embed-wrapper.ts
++++ b/src/app/script/embed/bootstrap/embed-wrapper.ts
+@@ -17,6 +17,10 @@ let wrapperCreated = false;
+  * Lazy loads rest of library, shows a loading screen, exposes Embed interface
+  */
+ export class EmbedWrapper {
++    private readonly viewportSubscriptions = new Set<{
++        listener: import('../../klecks/ui/project-viewport/project-viewport').TViewportListener;
++        unsubscribe?: () => void;
++    }>();
+     private project: TKlEmbedProject | undefined;
+     private errorStr: string | undefined;
+     private psds: TReadPSD[] = []; // if instance not loaded yet, these are psds to be read
+@@ -106,6 +110,9 @@ export class EmbedWrapper {
+             if (this.psds.length) {
+                 this.embed.readPSDs(this.psds);
+             }
++            for (const subscription of this.viewportSubscriptions) {
++                subscription.unsubscribe = this.embed.subscribeViewport(subscription.listener);
++            }
+         })();
+ 
+         // needed for uploading. load here to prevent possible timeouts due to server cold-start
+@@ -159,6 +166,23 @@ export class EmbedWrapper {
+         return await this.embed.getPNG();
+     };
+ 
++    subscribeViewport(
++        listener: import('../../klecks/ui/project-viewport/project-viewport').TViewportListener,
++    ): () => void {
++        const subscription: {
++            listener: typeof listener;
++            unsubscribe?: () => void;
++        } = { listener };
++        this.viewportSubscriptions.add(subscription);
++        if (this.embed) {
++            subscription.unsubscribe = this.embed.subscribeViewport(listener);
++        }
++        return () => {
++            this.viewportSubscriptions.delete(subscription);
++            subscription.unsubscribe?.();
++        };
++    }
++
+     getPSD = async (): Promise<Blob> => {
+         if (!this.embed) {
+             throw new Error('Embed not initialized');
+diff --git a/src/app/script/klecks/ui/easel/easel.ts b/src/app/script/klecks/ui/easel/easel.ts
+index 3d569d9..fe62341 100644
+--- a/src/app/script/klecks/ui/easel/easel.ts
++++ b/src/app/script/klecks/ui/easel/easel.ts
+@@ -917,6 +917,12 @@ export class Easel<GToolId extends string> {
+         return this.rootEl;
+     }
+ 
++    subscribeViewport(
++        listener: import('../project-viewport/project-viewport').TViewportListener,
++    ): () => void {
++        return this.viewport.subscribeViewport(listener);
++    }
++
+     destroy(): void {
+         this.viewport.destroy();
+         this.pointerListener.destroy();
+diff --git a/src/app/script/klecks/ui/project-viewport/project-viewport.ts b/src/app/script/klecks/ui/project-viewport/project-viewport.ts
+index f486e39..b423e39 100644
+--- a/src/app/script/klecks/ui/project-viewport/project-viewport.ts
++++ b/src/app/script/klecks/ui/project-viewport/project-viewport.ts
+@@ -2,7 +2,7 @@ import { LayerCompositor } from '../../canvas/layer-compositor';
+ import { TKlLayer } from '../../kl-types';
+ import { BB } from '../../../bb/bb';
+ import { changeCanvasDimensions } from '../../../bb/base/change-canvas-dimensions';
+-import { css } from '../../../bb/base/base';
++import { asyncThrow, css } from '../../../bb/base/base';
+ import { THEME } from '../../../theme/theme';
+ import { Matrix } from 'transformation-matrix';
+ import { createMatrixFromTransform } from '../../../bb/transform/create-matrix-from-transform';
+@@ -52,6 +52,15 @@ export type TViewportTransformXY = {
+     y: number;
+ };
+ 
++/** Canvas is borrowed until the next render. Copy it before asynchronous work. */
++export type TViewportFrame = {
++    canvas: HTMLCanvasElement;
++    width: number;
++    height: number;
++    transform: TViewportTransformXY;
++};
++export type TViewportListener = (frame: TViewportFrame) => void;
++
+ // undefined -> default, 'checker' -> checkerboard, all other strings -> CSS color
+ export type TProjectViewportBackground = undefined | 'checker' | (string & Record<never, never>);
+ 
+@@ -79,6 +88,7 @@ export type TProjectViewportParams = {
+  * Order of transformations (matrix multiplication is reversed): translate, rotate, scale
+  */
+ export class ProjectViewport {
++    private readonly frameListeners = new Set<TViewportListener>();
+     private width: number;
+     private height: number;
+     private readonly canvas: HTMLCanvasElement;
+@@ -274,6 +284,28 @@ export class ProjectViewport {
+             );
+ 
+         this.ctx.restore();
++        if (this.frameListeners.size && this.canvas.width && this.canvas.height) {
++            const frame: TViewportFrame = {
++                canvas: this.canvas,
++                width: this.width,
++                height: this.height,
++                transform: { ...this.renderedTransform },
++            };
++            for (const listener of this.frameListeners) {
++                try {
++                    listener(frame);
++                } catch (error) {
++                    asyncThrow(error instanceof Error ? error : new Error(String(error)));
++                }
++            }
++        }
++    }
++
++    /** Subscribe to completed viewport renders, including an initial frame. */
++    subscribeViewport(listener: TViewportListener): () => void {
++        this.frameListeners.add(listener);
++        this.render();
++        return () => this.frameListeners.delete(listener);
+     }
+ 
+     setSize(width: number, height: number): void {
+@@ -318,6 +350,7 @@ export class ProjectViewport {
+     }
+ 
+     destroy(): void {
++        this.frameListeners.clear();
+         BB.freeCanvas(this.canvas);
+         this.compositor.destroy();
+         THEME.removeIsDarkListener(this.onIsDark);
+diff --git a/src/app/script/klecks/ui/tool-tabs/edit-ui.ts b/src/app/script/klecks/ui/tool-tabs/edit-ui.ts
+index 69226ed..6207990 100644
+--- a/src/app/script/klecks/ui/tool-tabs/edit-ui.ts
++++ b/src/app/script/klecks/ui/tool-tabs/edit-ui.ts
+@@ -27,6 +27,7 @@ export type TEditUiParams = {
+     klCanvas: KlCanvas;
+     getCurrentLayerIndex: () => number;
+     isEmbed: boolean;
++    enableCanvasResize?: boolean;
+     statusOverlay: StatusOverlay;
+     onCanvasChanged: () => void; // dimensions/orientation changed
+     applyUncommitted: () => void;
+@@ -45,6 +46,7 @@ export class EditUi {
+     private readonly klCanvas: KlCanvas;
+     private readonly getCurrentLayerIndex: () => number;
+     private readonly isEmbed: boolean;
++    private readonly enableCanvasResize: boolean;
+     private readonly statusOverlay: StatusOverlay;
+     private readonly onCanvasChanged: () => void; // dimensions/orientation changed
+     private readonly applyUncommitted: () => void;
+@@ -292,7 +294,8 @@ This has been reported to Google.
+                 if (!groupArr.includes(filterKey)) {
+                     return;
+                 }
+-                if (this.isEmbed && !filter.inEmbed) {
++                const resizeEnabled = this.enableCanvasResize && ['cropExtend', 'resize', 'rotate'].includes(filterKey);
++                if (this.isEmbed && !filter.inEmbed && !resizeEnabled) {
+                     return;
+                 }
+                 this.rootEl.append(createButton(filterKey));
+@@ -382,6 +385,7 @@ This has been reported to Google.
+         this.klCanvas = p.klCanvas;
+         this.getCurrentLayerIndex = p.getCurrentLayerIndex;
+         this.isEmbed = p.isEmbed;
++        this.enableCanvasResize = !!p.enableCanvasResize;
+         this.statusOverlay = p.statusOverlay;
+         this.onCanvasChanged = p.onCanvasChanged;
+         this.applyUncommitted = p.applyUncommitted;
+diff --git a/src/app/script/main-embed.ts b/src/app/script/main-embed.ts
+index 63fa062..dcd3632 100644
+--- a/src/app/script/main-embed.ts
++++ b/src/app/script/main-embed.ts
+@@ -20,6 +20,7 @@ export type TEmbedParams = {
+     aboutEl?: HTMLElement;
+     disableAutoFit?: boolean; // disable automatic Fit to View for small canvases
+     enableImageDropperImport?: boolean; // default false
++    enableCanvasResize?: boolean; // default false
+ };
+ 
+ export type TReadPSD = {
+@@ -45,6 +46,10 @@ export function processEmbedProject(embedProject: TKlEmbedProject): TKlProject {
+  * Embed runs when the main bundle is loaded. It instantiates Klecks.
+  */
+ export class Embed {
++    private readonly viewportSubscriptions = new Set<{
++        listener: import('./klecks/ui/project-viewport/project-viewport').TViewportListener;
++        unsubscribe?: () => void;
++    }>();
+     private isInitialized: boolean = false;
+     private klApp: KlApp | undefined;
+     private readonly psdQueue: TReadPSD[] = []; // queue of psds waiting while ag-psd is loading
+@@ -68,9 +73,13 @@ export class Embed {
+                 embed: {
+                     url: this.p.embedUrl,
+                     enableImageDropperImport: !!this.p.enableImageDropperImport,
++                    enableCanvasResize: !!this.p.enableCanvasResize,
+                     onSubmit: this.p.onSubmit,
+                 },
+             });
++            for (const subscription of this.viewportSubscriptions) {
++                subscription.unsubscribe = this.klApp.subscribeViewport(subscription.listener);
++            }
+ 
+             void this.loadingScreenEl?.remove();
+             this.loadingScreenEl = null;
+@@ -119,6 +128,20 @@ export class Embed {
+         return await this.klApp.getPNG();
+     }
+ 
++    subscribeViewport(
++        listener: import('./klecks/ui/project-viewport/project-viewport').TViewportListener,
++    ): () => void {
++        const subscription: { listener: typeof listener; unsubscribe?: () => void } = { listener };
++        this.viewportSubscriptions.add(subscription);
++        if (this.klApp) {
++            subscription.unsubscribe = this.klApp.subscribeViewport(listener);
++        }
++        return () => {
++            this.viewportSubscriptions.delete(subscription);
++            subscription.unsubscribe?.();
++        };
++    }
++
+     async getPSD(): Promise<Blob> {
+         if (!this.klApp) {
+             throw new Error('App not initialized');
