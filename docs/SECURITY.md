@@ -80,8 +80,11 @@ and fixed an unhandled socket error that could crash the relay.
 The Aegis receiver has eight tests covering command injection, image-identity
 mismatch, rollback, first-install failure, temporary credentials and status.
 Shell/Ansible syntax and the route in the target Caddy version pass locally.
-GitHub-hosted verification, first live deployment, public HTTPS/WSS acceptance
-and physical iPad/Pencil endurance remain distinct gates until recorded as passed.
+GitHub-hosted AMD64 verification and the first live deployment passed in
+[manual Actions run 38079508747](https://github.com/grobmeier/klecks-live/actions/runs/38079508747).
+Authenticated public HTTPS/WSS and external anonymous-access checks also passed;
+the detailed receipt is in [ACCEPTANCE.md](ACCEPTANCE.md). Physical iPad/Pencil
+endurance and actual browser acceptance remain separate gates.
 
 For this pilot, use disposable, non-sensitive drawings. Physical Safari sign-in,
 remember/forget, actual Pencil latency and 30-minute endurance remain in

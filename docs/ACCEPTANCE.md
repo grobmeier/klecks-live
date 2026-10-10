@@ -189,3 +189,24 @@ Hostile TLS upgrade/reset testing found and fixed an unhandled socket error;
 all 54 app tests pass. The Aegis receiver's eight tests, Ansible/shell syntax and
 Caddy 2.11.4 route validation pass. GitHub-hosted AMD64 verification, actual
 public deployment and physical iPad acceptance must be recorded separately.
+
+## Public pilot activation on 10 October 2026
+
+[Manual Actions run 38079508747](https://github.com/grobmeier/klecks-live/actions/runs/38079508747)
+verified Linux AMD64, all 54 app tests and hardened-container behaviour, and
+reported zero HIGH/CRITICAL runtime-image findings before deployment. It
+published and deployed revision `98c4a5708ede2e9afe53f8db23e7f3a7c46e6bdc` by
+immutable digest `sha256:02da22eb07eafa1f64cbcd5416a397582ac86ac87ebc2b1cd09b40ee89ad86aa`.
+
+The operator then activated the public HTTPS route. The container's authenticated
+smoke passed private sign-in, protected cookies, actual editor loading, WSS pixels,
+late viewers, viewer role isolation, stop and access revocation. A separate Mac
+check passed trusted HTTPS, anonymous editor/asset/session denial and rejected
+WebSocket origins. The confined deployment SSH key rejects general commands,
+and anonymous container pull authorization is denied.
+
+The password remains server-managed and is excluded from GitHub, source and test
+logs. Routing, health/status monitoring and resource policy are enabled in the
+infrastructure inventory. Actual browser sign-in/remember/forget, physical
+iPad/Pencil latency, background recovery and 30-minute endurance still require
+device acceptance. These automated checks do not measure production capacity.
