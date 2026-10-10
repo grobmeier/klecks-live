@@ -4,18 +4,20 @@ import { encodeFrame } from './protocol.js';
 export class FramePublisher {
   constructor({ socket, epoch, fps, maxEdge, maxFrameBytes, onError, initialSequence = 0, makeCanvas = () => document.createElement('canvas') }) {
     Object.assign(this, { socket, epoch, fps, maxEdge, maxFrameBytes, onError });
-    this.surface = makeCanvas(); this.sequence = initialSequence; this.active = true; this.busy = false; this.lastSent = 0;
+    this.surface = makeCanvas(); this.sequence = initialSequence; this.active = true; this.busy = false; this.lastCaptured = -Infinity;
   }
   notify = frame => { if (!this.active) return; this.pending = frame; this.schedule(); };
   schedule() {
     if (!this.active || this.busy || this.timer || !this.pending) return;
-    const wait = Math.max(0, 1000 / this.fps - (performance.now() - this.lastSent));
+    const wait = Math.max(0, 1000 / this.fps - (performance.now() - this.lastCaptured));
     this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, wait);
   }
   async flush() {
     if (!this.active || !this.pending || this.socket.readyState !== 1) return;
     if (this.socket.bufferedAmount > this.maxFrameBytes) { this.timer = setTimeout(() => { this.timer = undefined; this.schedule(); }, 100); return; }
     const frame = this.pending; this.pending = undefined; this.busy = true;
+    // Encoding consumes part of the interval; never overlap encoders to catch up.
+    this.lastCaptured = performance.now();
     try {
       const scale = Math.min(1, this.maxEdge / Math.max(frame.canvas.width, frame.canvas.height));
       const width = Math.max(1, Math.round(frame.canvas.width * scale));
@@ -31,7 +33,6 @@ export class FramePublisher {
       const image = await blob.arrayBuffer();
       if (!this.active || this.socket.readyState !== 1) return;
       this.socket.send(encodeFrame({ epoch: this.epoch, seq: ++this.sequence, width, height, mime: blob.type }, image));
-      this.lastSent = performance.now();
     } catch (error) { if (this.active) this.onError(error.message); }
     finally { this.busy = false; this.schedule(); }
   }

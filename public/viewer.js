@@ -19,8 +19,9 @@ async function render() {
     if (header.epoch !== epoch || header.seq <= lastSequence) return;
     const blob = new Blob([image], { type: header.mime }); url = URL.createObjectURL(blob);
     const img = new Image(); img.src = url; await img.decode();
-    // A newer queued view supersedes this decode; terminal/epoch changes also invalidate it.
-    if (terminal || version !== generation || pending) return;
+    // Paint the newest completed decode, then decode the latest pending view.
+    // Discarding completed images while updates arrive can starve the display.
+    if (terminal || version !== generation) return;
     canvas.width = header.width; canvas.height = header.height; context.drawImage(img, 0, 0);
     lastSequence = header.seq; canvas.dataset.sequence = String(lastSequence); canvas.hidden = false;
     hasFreshFrame = true;

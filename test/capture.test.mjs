@@ -27,3 +27,25 @@ test('capture keeps one encoder and the latest pending view, and sends no frames
   publisher.dispose(); completions[1](new Blob([png], { type: 'image/png' })); await delay(5);
   assert.equal(sent.length, 1); assert.equal(surface.width, 1);
 });
+
+test('encoding time is included in the frame interval instead of added to it', async t => {
+  let now = 1000;
+  t.mock.method(performance, 'now', () => now);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const completions = [], drawn = [], sent = [];
+  const surface = { width: 0, height: 0, getContext: () => ({ fillRect() {}, drawImage(canvas) { drawn.push(canvas.id); } }), toBlob(done) { completions.push(done); } };
+  const publisher = new FramePublisher({ socket: { readyState: 1, bufferedAmount: 0, send(bytes) { sent.push(bytes); } }, epoch: 'test', fps: 20, maxEdge: 1600, maxFrameBytes: 2048, makeCanvas: () => surface, onError: message => assert.fail(message) });
+  t.after(() => publisher.dispose());
+  publisher.notify({ canvas: { id: 1, width: 100, height: 50 } });
+  t.mock.timers.tick(0);
+  publisher.notify({ canvas: { id: 2, width: 100, height: 50 } });
+  now = 1040; t.mock.timers.tick(40);
+  completions[0](new Blob([png], { type: 'image/png' }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sent.length, 1);
+  now = 1049; t.mock.timers.tick(9);
+  assert.deepEqual(drawn, [1]);
+  now = 1050; t.mock.timers.tick(1);
+  assert.deepEqual(drawn, [1, 2]);
+  assert.equal(completions.length, 2);
+});
