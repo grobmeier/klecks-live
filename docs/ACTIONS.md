@@ -60,7 +60,7 @@ GHCR package private; verify package visibility after first publication.
    drawing and a viewer link on another device.
 
 For the Aegis pilot, the reviewed policy uses a loopback-only port, two sessions,
-ten viewers per session, eight frames per second, a 1280-pixel maximum edge and
+ten viewers per session, sixteen frames per second, a 1280-pixel maximum edge and
 512 KiB image limit. It has no database or persistent drawing volume. Existing
 service/secrets Borg roots cover operator configuration and deployment receipts;
 live drawings must be exported separately.
