@@ -1,0 +1,109 @@
+name: Verify and deploy Live Draw
+
+on:
+  push:
+    branches: [main, 'feature/**', 'bugfix/**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy this verified main revision to the configured online-test host
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run check
+      - run: npm audit --omit=dev --audit-level=moderate
+      - name: Build the pinned Linux image
+        run: docker build --build-arg SOURCE_REVISION="$GITHUB_SHA" -t live-draw:verified .
+      - name: Extract the built editor for integration tests
+        run: |
+          set -euo pipefail
+          container_id="$(docker create live-draw:verified)"
+          trap 'docker rm "$container_id" >/dev/null' EXIT
+          docker cp "$container_id:/app/dist" ./dist
+      - run: npm test
+      - run: npm run test:container -- live-draw:verified
+      - name: Archive and scan the exact runtime image
+        run: |
+          mkdir -p .build
+          docker save live-draw:verified -o .build/live-draw-image.tar
+          bash scripts/scan-image.sh .build/live-draw-image.tar
+      - name: Save vulnerability evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: security-report
+          path: .build/image-security.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Save the verified image for manual deployment
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verified-image
+          path: .build/live-draw-image.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: online-test
+    concurrency:
+      group: live-draw-online-test
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: verified-image
+      - name: Publish and deploy only the verified image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LIVE_DRAW_HOST: ${{ vars.LIVE_DRAW_HOST }}
+          LIVE_DRAW_SSH_USER: ${{ vars.LIVE_DRAW_SSH_USER }}
+          LIVE_DRAW_KNOWN_HOSTS: ${{ vars.LIVE_DRAW_KNOWN_HOSTS }}
+          LIVE_DRAW_SSH_KEY: ${{ secrets.LIVE_DRAW_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == grobmeier/klecks-live ]]
+          [[ "$LIVE_DRAW_HOST" =~ ^[a-zA-Z0-9.-]+$ ]]
+          [[ "$LIVE_DRAW_SSH_USER" == klecks-live-deploy ]]
+          [[ -n "$LIVE_DRAW_KNOWN_HOSTS" && -n "$LIVE_DRAW_SSH_KEY" ]]
+          deploy_dir="$(mktemp -d)"
+          trap 'rm -rf "$deploy_dir"' EXIT
+          export DOCKER_CONFIG="$deploy_dir/docker"
+          umask 077
+          printf '%s\n' "$LIVE_DRAW_SSH_KEY" > "$deploy_dir/key"
+          printf '%s\n' "$LIVE_DRAW_KNOWN_HOSTS" > "$deploy_dir/known_hosts"
+          docker load -i live-draw-image.tar
+          image="ghcr.io/$GITHUB_REPOSITORY:sha-$GITHUB_SHA"
+          printf '%s\n' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_REPOSITORY_OWNER" --password-stdin
+          docker tag live-draw:verified "$image"
+          docker push "$image"
+          immutable="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}')"
+          [[ "$immutable" =~ ^ghcr.io/grobmeier/klecks-live@sha256:[0-9a-f]{64}$ ]]
+          digest="${immutable##*@}"
+          printf '%s\n' "$GH_TOKEN" | ssh -T -i "$deploy_dir/key" -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$deploy_dir/known_hosts" \
+            -o ConnectTimeout=15 "$LIVE_DRAW_SSH_USER@$LIVE_DRAW_HOST" "deploy $digest $GITHUB_SHA"
+          echo "Deployed verified revision $GITHUB_SHA by immutable digest $digest."
