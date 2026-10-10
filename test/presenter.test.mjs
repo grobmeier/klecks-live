@@ -1,0 +1,138 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { runInNewContext } from 'node:vm';
+
+const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../public/presenter.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
+const session = { id: 'synthetic-session', presenterToken: 'synthetic-presenter', viewerToken: 'synthetic-viewer', expiresAt: Date.now() + 60000 };
+
+async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), storageDenied = false, earlyEditorReady = false } = {}) {
+  const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
+    value: '', checked: false, dataset: {}, hidden: false, disabled: false, open: false, textContent: '', events: new Map(),
+    classList: { toggle() {} }, addEventListener(type, listener) { this.events.set(type, listener); },
+    showModal() { this.open = true; }, close() { this.open = false; }, focus() { this.focused = true; }, select() {},
+  }]));
+  elements.get('editor').dataset.ready = 'true';
+  const requests = [], sockets = [], saved = new Map();
+  class Socket {
+    static OPEN = 1;
+    constructor(url) { this.url = url; this.events = new Map(); this.sent = []; sockets.push(this); }
+    addEventListener(type, listener) { this.events.set(type, listener); }
+    send(data) { this.sent.push(JSON.parse(data)); }
+    close() {}
+  }
+  const storage = operation => { if (storageDenied) throw new Error('Storage unavailable'); return operation(); };
+  await runInNewContext(`(async () => { ${source}\n })()`, {
+    document: { hidden: false, getElementById: id => elements.get(id), addEventListener() {} },
+    location: { origin: 'https://draw.example.org' }, WebSocket: Socket, VERSION: 1,
+    sessionStorage: { getItem: key => storage(() => saved.get(key) || null), setItem: (key, value) => storage(() => saved.set(key, value)), removeItem: key => storage(() => saved.delete(key)) },
+    fetch: async (path, options) => {
+      if (path === '/api/config') {
+        if (earlyEditorReady) elements.get('editor').events.get('editor-ready')();
+        return { json: async () => ({ hostKeyRequired: true }) };
+      }
+      if (path === '/api/presenter-access' && !options.method) return { ok: true, json: async () => initialAccess };
+      requests.push({ path, method: options.method, key: options.headers?.['X-Host-Key'], remembered: options.headers?.['X-Remember-Device'] });
+      if (path === '/api/sessions') return creation();
+      if (options.method === 'DELETE') return forget();
+      return response();
+    },
+    setTimeout, clearTimeout, URL,
+  });
+  return {
+    get: id => elements.get(id), requests, sockets,
+    click: id => elements.get(id).events.get('click')(),
+    submit: () => elements.get('key-form').events.get('submit')({ preventDefault() {} }),
+    settle: () => new Promise(resolve => setImmediate(resolve)),
+  };
+}
+
+test('a rejected host key stays in the dialog and can be corrected before connecting', async () => {
+  let accepted = false;
+  const app = await presenter({ response: () => ({ ok: accepted, status: accepted ? 201 : 403, json: async () => accepted ? { authorized: true } : { error: 'Host access key required' } }) });
+  app.click('start'); app.get('host-key').value = 'a-new-key'; await app.submit();
+  assert.equal(app.get('key-dialog').open, true);
+  assert.equal(app.get('key-error').hidden, false);
+  assert.match(app.get('key-error').textContent, /existing password/);
+  assert.equal(app.get('host-key').value, 'a-new-key');
+  assert.equal(app.get('submit-key').disabled, false);
+  assert.equal(app.sockets.length, 0);
+  accepted = true; app.get('host-key').value = '  synthetic-existing-key\n'; await app.submit();
+  assert.equal(app.requests[1].key, 'synthetic-existing-key');
+  assert.equal(app.requests[1].remembered, 'false');
+  assert.equal(app.requests[2].path, '/api/sessions');
+  assert.equal(app.requests[2].key, undefined);
+  assert.equal(app.get('key-dialog').open, false);
+  assert.equal(app.get('host-key').value, '');
+  assert.equal(app.get('copy').hidden, false);
+  assert.equal(app.sockets.length, 1);
+  assert.equal(app.sockets[0].url, 'wss://draw.example.org/socket');
+});
+
+test('unavailable browser storage does not prevent an accepted session connecting', async () => {
+  const app = await presenter({ storageDenied: true, response: () => ({ ok: true, status: 201, json: async () => ({ authorized: true }) }) });
+  app.click('start'); app.get('host-key').value = 'synthetic-existing-key'; await app.submit();
+  assert.equal(app.get('key-dialog').open, false); assert.equal(app.sockets.length, 1);
+  app.sockets[0].events.get('open')();
+  assert.equal(app.sockets[0].sent[0].role, 'presenter');
+  assert.equal(app.sockets[0].sent[0].token, session.presenterToken);
+});
+
+test('pending creation rejects duplicate submissions and network failure permits retry', async () => {
+  let fail;
+  const app = await presenter({ response: () => new Promise((resolve, reject) => { fail = reject; }) });
+  app.click('start'); app.get('host-key').value = 'synthetic-existing-key';
+  const submitted = app.submit(); await app.submit();
+  assert.equal(app.requests.length, 1); assert.equal(app.get('submit-key').disabled, true);
+  fail(new TypeError('Failed to fetch')); await submitted;
+  assert.equal(app.get('key-dialog').open, true); assert.equal(app.get('submit-key').disabled, false);
+  assert.match(app.get('key-error').textContent, /Could not reach the server/);
+});
+
+test('remembering sends a device choice once; later session starts skip the password dialog', async () => {
+  const app = await presenter(); app.click('start');
+  assert.equal(app.get('remember-device').checked, false);
+  app.get('host-key').value = 'synthetic-existing-password'; app.get('remember-device').checked = true;
+  await app.submit(); assert.equal(app.requests[0].remembered, 'true');
+  assert.equal(app.get('host-key').value, '');
+  assert.equal(app.get('forget-device').hidden, false); assert.equal(app.get('forget-device').disabled, true);
+  app.sockets[0].events.get('message')({ data: JSON.stringify({ type: 'ended', reason: 'stopped' }) });
+  assert.equal(app.get('forget-device').disabled, false);
+  app.click('start'); await app.settle();
+  assert.equal(app.get('key-dialog').open, false);
+  assert.equal(app.requests.filter(r => r.path === '/api/presenter-access').length, 1);
+  assert.equal(app.requests.filter(r => r.path === '/api/sessions').length, 2);
+});
+
+test('previous device access starts with one click and expiry returns to sign-in without reloading', async () => {
+  const app = await presenter({ initialAccess: { authorized: true }, creation: () => ({ ok: false, status: 403, json: async () => ({ error: 'Host access key required' }) }) });
+  const editor = app.get('editor'); app.click('start'); await app.settle();
+  assert.equal(app.requests.length, 1); assert.equal(app.requests[0].path, '/api/sessions');
+  assert.equal(app.get('key-dialog').open, true); assert.match(app.get('key-error').textContent, /expired or was removed/);
+  assert.equal(app.get('forget-device').hidden, true); assert.equal(app.get('editor'), editor);
+  assert.equal(app.get('host-key').disabled, false); assert.equal(app.sockets.length, 0);
+});
+
+test('blocked cookies produce an actionable retry and discard the successfully entered password', async () => {
+  const app = await presenter({ creation: () => ({ ok: false, status: 403, json: async () => ({ error: 'Host access key required' }) }) });
+  app.click('start'); app.get('host-key').value = 'synthetic-existing-password'; await app.submit();
+  assert.equal(app.get('key-dialog').open, true); assert.match(app.get('key-error').textContent, /Allow cookies/);
+  assert.equal(app.get('host-key').value, ''); assert.equal(app.get('submit-key').disabled, false);
+});
+
+test('forgetting access requires the password next time and failure keeps access retryable', async () => {
+  let accepted = false;
+  const app = await presenter({ initialAccess: { authorized: true }, forget: () => ({ ok: accepted }) });
+  await app.click('forget-device'); assert.equal(app.get('forget-device').hidden, false);
+  assert.match(app.get('notice').textContent, /Could not forget/); assert.equal(app.get('forget-device').disabled, false);
+  accepted = true; await app.click('forget-device');
+  assert.equal(app.get('forget-device').hidden, true);
+  app.click('start'); assert.equal(app.get('key-dialog').open, true); assert.equal(app.sockets.length, 0);
+});
+
+test('editor readiness arriving before the access check does not break initialization', async () => {
+  const app = await presenter({ earlyEditorReady: true, initialAccess: { authorized: true } });
+  assert.equal(app.get('start').disabled, false); app.click('start'); await app.settle();
+  assert.equal(app.sockets.length, 1);
+});

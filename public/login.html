@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Live Draw · Presenter access</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/logo.svg"></head>
+<body class="sign-in">
+<main class="sign-in-card">
+  <a class="brand" href="/">Live Draw<span>with Klecks</span></a>
+  <h1>Presenter access</h1>
+  <p>This editor is private. Enter the presenter password to open the drawing tools.</p>
+  <form id="login-form" method="post" action="/api/presenter-access">
+    <label>Presenter password<input id="host-key" name="presenter-password" type="password" autocomplete="current-password" aria-describedby="login-error" required autofocus></label>
+    <label class="remember-device"><input id="remember-device" type="checkbox" aria-describedby="remember-help">Remember this device</label>
+    <p id="remember-help" class="help">Use this on your own device. Access lasts up to 30 days, or until the server restarts. Leave it unchecked on shared devices.</p>
+    <p id="login-error" role="alert" hidden></p>
+    <button id="submit-login" class="primary" type="submit">Open drawing tools</button>
+  </form>
+  <p class="viewer-help">Here to watch? Open the complete viewer link supplied by the presenter.</p>
+</main>
+<script type="module" src="/login.js"></script>
+</body></html>
