@@ -174,3 +174,18 @@ late joins and stop. Private mode is now active on the local LAN relay. Checks
 against that running server also passed sign-in-only entry, editor-bundle denial,
 authenticated editor loading, revocation, read-only viewer delivery and stop.
 Real-browser sign-in and physical iPad acceptance remain separate open gates.
+
+## Online deployment preparation on 10 October 2026
+
+The current-source Linux container build and hardened runtime checks passed,
+including explicit CPU/process/swap bounds. The final image uses a pinned
+Distroless Node 24 runtime. Its local Trivy scan reports zero HIGH/CRITICAL
+findings, with no blanket ignore of unfixed advisories. The runtime npm audit is
+clean. Two editor build-package issues are patched; one remaining build-only
+advisory is explicitly reviewed in `SECURITY.md`.
+
+An isolated trusted HTTPS/WSS check of the new online smoke script passed.
+Hostile TLS upgrade/reset testing found and fixed an unhandled socket error;
+all 54 app tests pass. The Aegis receiver's eight tests, Ansible/shell syntax and
+Caddy 2.11.4 route validation pass. GitHub-hosted AMD64 verification, actual
+public deployment and physical iPad acceptance must be recorded separately.

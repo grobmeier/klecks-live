@@ -51,9 +51,11 @@ a viewer link can watch its session; this milestone does not provide named-user
 access controls. Rotate the operator key by changing configuration and restarting
 the relay; existing sessions end at restart.
 
-The container runs as the unprivileged `node` user. Compose sets a read-only
-filesystem, drops capabilities, enables an init process and caps memory at
-256 MiB. Increase the memory budget only after measuring actual workload.
+The container uses a digest-pinned Distroless Node 24 runtime with UID/GID 1000.
+It contains no shell, npm, compiler or editor build tools. Compose sets a
+read-only filesystem, drops capabilities, enables an init process and caps
+memory and swap at 256 MiB, CPU at one core and processes at 64. Increase these
+budgets only after measuring actual workload.
 `GET /health` reports process availability; it does not establish device
 acceptance or production viewer capacity.
 
@@ -151,3 +153,6 @@ Stopping a session, expiry and restart discard retained pixels. Drawings are
 not persisted by the relay. Export locally before closing or reloading the
 presenter. This package does not configure production infrastructure, DNS,
 certificates, backups or monitoring automatically.
+
+For the guarded GitHub Actions online pilot and separate operator provisioning,
+see [ACTIONS.md](ACTIONS.md) and the reviewed boundaries in [SECURITY.md](SECURITY.md).

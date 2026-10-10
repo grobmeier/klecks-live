@@ -75,3 +75,9 @@ files, capability links, access keys, workshop drawings, analysis graphs or
 personal infrastructure in source submissions. Use synthetic fixtures and
 neutral hostnames in examples. Do not log authentication payloads or full
 viewer links. Preserve companion, Klecks, library and font licence notices.
+
+The source preparation also applies a separate build-security patch with
+patched dependency overrides; keep it independent of the upstream viewport
+proposal. `node scripts/audit-klecks.mjs` checks the reviewed build-only advisory
+exception. CI scans the final runtime image and blocks HIGH/CRITICAL findings.
+See `docs/SECURITY.md` and `docs/ACTIONS.md` before modifying deployment controls.

@@ -135,6 +135,12 @@ its Settings → Licenses dialog and in the pinned upstream source. The `ws`
 runtime dependency carries its MIT licence in its package. Preserve these
 notices when distributing source or built assets.
 
-The source pin and npm lockfiles make source preparation repeatable. The Docker
-base tag and operating-system packages can change; this is not a claim of
-byte-identical container builds.
+The source pin, npm lockfiles and Docker base digests make source preparation
+repeatable. Build-stage operating-system packages can change; this is not a
+claim of byte-identical container builds. Deployment uses the exact tested
+and scanned image digest.
+
+The guarded online-test pipeline is documented in [ACTIONS.md](docs/ACTIONS.md).
+Ordinary pushes run checks; deployment requires an explicit manual main run.
+See [SECURITY.md](docs/SECURITY.md) for the access boundaries, image gate and
+reviewed build-only exception.
