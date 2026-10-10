@@ -6,8 +6,44 @@ import { WebSocket } from 'ws';
 import { createApplication } from '../server/app.mjs';
 import { configuration } from '../server/config.mjs';
 import { encodeFrame, decodeFrame } from '../public/protocol.js';
+import https from 'node:https';
+import tls from 'node:tls';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY7sAAAAASUVORK5CYII=', 'base64');
+
+test('aborted hostile TLS upgrades cannot crash or make the relay unavailable', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'live-draw-tls-test-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, 'openssl.cnf'), '[req]\ndistinguished_name=dn\n[dn]\n[v3]\nsubjectAltName=IP:127.0.0.1,DNS:localhost\nbasicConstraints=critical,CA:TRUE\n');
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
+    '-config', join(directory, 'openssl.cnf'), '-extensions', 'v3',
+    '-keyout', join(directory, 'key.pem'), '-out', join(directory, 'cert.pem')], { stdio: 'ignore' });
+  const key = await readFile(join(directory, 'key.pem')), cert = await readFile(join(directory, 'cert.pem'));
+  const app = createApplication({ host: '127.0.0.1', port: 0 }, listener => https.createServer({ key, cert }, listener));
+  await app.listen(); t.after(() => app.close());
+  // A real TLS client deliberately abandons a rejected WebSocket upgrade.
+  for (let i = 0; i < 10; i++) {
+    const client = tls.connect({ host: '127.0.0.1', port: app.server.address().port, ca: cert });
+    client.on('error', () => {});
+    await once(client, 'secureConnect');
+    const closed = once(client, 'close');
+    client.on('data', () => client.destroy());
+    client.write('GET /socket HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nOrigin: https://invalid.example\r\n\r\n');
+    await closed;
+  }
+  await delay(20);
+  const status = await new Promise((resolveStatus, reject) => {
+    const request = https.get(app.origin + '/health', { ca: cert }, response => {
+      response.resume(); resolveStatus(response.statusCode);
+    });
+    request.on('error', reject);
+  });
+  assert.equal(status, 200);
+});
 async function fixture(t, config = {}) {
   const app = createApplication({ port: 0, fps: 30, ...config }); await app.listen();
   t.after(() => app.close());

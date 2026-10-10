@@ -123,6 +123,9 @@ export function createApplication(overrides = {}, createServer = http.createServ
   server.headersTimeout = 10000;
   server.requestTimeout = 10000;
   server.on('upgrade', (req, socket, head) => {
+    // Rejected upgrades still own a raw HTTP/TLS socket. A peer can reset it
+    // before WebSocketServer installs its handlers; this must not crash Node.
+    socket.on('error', () => {});
     if (req.url !== '/socket' || req.headers.origin !== origin || limited(req) || wss.clients.size >= config.maxSessions * (config.maxViewers + 1) + 10) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
     }
