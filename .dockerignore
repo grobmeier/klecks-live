@@ -1,0 +1,8 @@
+.git
+node_modules
+.build
+dist
+.env*
+output
+.local-test
+*.log

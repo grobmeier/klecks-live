@@ -1,0 +1,17 @@
+services:
+  live-draw:
+    build: .
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5055
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the external HTTPS origin}
+      HOST_ACCESS_KEY: ${HOST_ACCESS_KEY:?Set a host key with at least 32 characters}
+      EDITOR_ACCESS: ${EDITOR_ACCESS:-private}
+    ports:
+      - "127.0.0.1:5055:5055"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
