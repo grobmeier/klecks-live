@@ -1,5 +1,6 @@
 {
   "repository": "https://github.com/bitbof/klecks.git",
   "revision": "7b1d4744b648de6133b0d45073af4efd2f998148",
-  "patch": "patches/klecks-viewport.patch"
+  "patch": "patches/klecks-viewport.patch",
+  "buildPatches": ["patches/klecks-build-security.patch"]
 }

@@ -21,7 +21,9 @@ execFileSync('git', ['archive', '--format=tar', '--output', archive, upstream.re
 execFileSync('tar', ['-xf', archive, '-C', destination]);
 // Isolate git apply from any repository that contains this build directory.
 execFileSync('git', ['init', '-q', destination]);
-execFileSync('git', ['apply', '--check', resolve(root, upstream.patch)], { cwd: destination });
-execFileSync('git', ['apply', resolve(root, upstream.patch)], { cwd: destination });
+for (const patch of [upstream.patch, ...(upstream.buildPatches || [])]) {
+  execFileSync('git', ['apply', '--check', resolve(root, patch)], { cwd: destination });
+  execFileSync('git', ['apply', resolve(root, patch)], { cwd: destination });
+}
 await writeFile(resolve(root, '.build/upstream-revision'), upstream.revision + '\n');
 console.log(`Prepared pinned Klecks ${upstream.revision.slice(0, 7)} with the viewport integration.`);
