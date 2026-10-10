@@ -239,6 +239,20 @@ portrait image and the fullscreen action also passed, without overflow.
 The isolated viewer reported no console errors or warnings. Review artifacts
 contain only synthetic pixels and remain under ignored `output/playwright/`.
 
-Linux container verification, online activation and physical-device performance
-must be recorded separately. Increased frequency can increase bandwidth while
-drawing; image, queue, viewer, CPU and memory limits remain bounded.
+Increased frequency can increase bandwidth while drawing; image, queue, viewer,
+CPU and memory limits remain bounded. Physical-device performance remains open.
+
+After explicit approval, [manual Actions run 38081546135](https://github.com/grobmeier/klecks-live/actions/runs/38081546135)
+rebuilt and verified Linux AMD64, all 58 tests and the hardened container, with
+zero HIGH/CRITICAL runtime-image findings. It deployed revision
+`16da47efae868d4ae5097527e448887b4b4f71c2` by immutable digest
+`sha256:5f130382d5349f93e995f82e3d592d61efa60bc655edea80afe384abe4d0f823`.
+
+The scoped Aegis installation changed only the service policy file. Public
+HTTPS now reports 16 fps, private editor access, the same 1280-pixel/512 KiB
+image limits and exact matching viewer/style assets. Authenticated checks from
+the Mac passed protected cookies, actual editor loading, public WSS frames,
+late joins, viewer isolation, stop and access revocation. Anonymous image-pull
+authorization remains denied. The previous image revision `98c4a57` is retained
+for rollback. Deployment cleared sessions and remembered device access; export
+before refreshing the presenter, then sign in and share a new session link.
