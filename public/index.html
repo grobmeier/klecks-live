@@ -2,12 +2,23 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Live Draw · Presenter</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/logo.svg"></head>
 <body class="presenter">
-<header class="toolbar">
+<header class="toolbar presenter-toolbar" id="presenter-controls">
   <a class="brand" href="/">Live Draw<span>with Klecks</span></a>
   <div class="session-state"><span class="indicator" id="indicator"></span><span id="status" role="status" aria-live="polite">Loading drawing tools…</span><span id="count" hidden></span></div>
-  <div class="actions"><button id="start" class="primary" disabled>Start live session</button><button id="copy" hidden>Copy viewer link</button><button id="stop" class="danger" hidden>Stop sharing</button><button id="export">Export PNG</button><button id="export-psd">Export PSD</button><button id="forget-device" hidden>Forget this device</button></div>
+  <div class="actions">
+    <button id="start" class="primary" aria-label="Start live session" disabled>Start live</button>
+    <button id="copy" aria-label="Copy viewer link" hidden>Copy link</button>
+    <button id="stop" class="danger" aria-label="Stop sharing" hidden>Stop</button>
+    <details class="presenter-more" id="more">
+      <summary id="more-toggle">More</summary>
+      <div class="presenter-options" role="group" aria-label="Presenter options">
+        <button id="export-psd" disabled>Export PSD</button>
+        <button id="forget-device" hidden>Forget this device</button>
+      </div>
+    </details>
+  </div>
 </header>
-<div class="notice" id="notice" role="status">Sharing is off. Your drawing stays in this browser.</div>
+<div class="notice" id="notice" role="status" hidden></div>
 <iframe id="editor" title="Klecks drawing tools" src="/editor.html"></iframe>
 <dialog id="key-dialog"><form id="key-form" method="post" action="/api/presenter-access"><h2>Presenter access</h2><label>Presenter password<input id="host-key" name="presenter-password" type="password" autocomplete="current-password" aria-describedby="key-error" required></label><label class="remember-device"><input id="remember-device" type="checkbox" aria-describedby="remember-help">Remember this device</label><p id="remember-help" class="help">Use only on your own device. Access lasts up to 30 days.</p><p id="key-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" id="cancel-key">Cancel</button><button id="submit-key" class="primary" type="submit">Start sharing</button></div></form></dialog>
 <dialog id="link-dialog"><h2>Viewer link</h2><p>Anyone with this link can watch until you stop sharing or the session expires.</p><input id="viewer-link" aria-label="Viewer link" readonly><button id="close-link">Done</button></dialog>

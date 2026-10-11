@@ -2,7 +2,7 @@ import { FramePublisher } from './capture.js';
 import { VERSION } from './protocol.js';
 const $ = id => document.getElementById(id);
 const frame = $('editor');
-let editorReady = frame.dataset.ready === 'true', session, socket, publisher, unsubscribe, reconnectTimer, reconnectDelay = 500, stopping = false, terminal = false, starting = false, forgetting = false, sequence = 0;
+let editorReady = frame.dataset.ready === 'true', session, socket, publisher, unsubscribe, reconnectTimer, reconnectDelay = 500, stopping = false, terminal = false, starting = false, forgetting = false, exporting = false, sequence = 0;
 let config = {}, access = { authorized: false };
 frame.addEventListener('editor-ready', () => { editorReady = true; buttons(); if (session) connect(); else state('Sharing is off'); }, { once: true });
 config = await fetch('/api/config', { cache: 'no-store' }).then(r => r.json());
@@ -17,6 +17,8 @@ const storageKey = 'live-draw.presenter';
 function clearSavedSession() { try { sessionStorage.removeItem(storageKey); } catch { /* Keep sharing usable when browser storage is unavailable. */ } }
 try { const saved = JSON.parse(sessionStorage.getItem(storageKey)); if (saved?.expiresAt > Date.now()) session = saved; else clearSavedSession(); } catch { clearSavedSession(); }
 function state(text, live = false) { $('status').textContent = text; $('indicator').classList.toggle('live', live); }
+function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
+function closeMore() { $('more').open = false; }
 function buttons() {
   $('start').hidden = !!session; $('start').disabled = starting || forgetting || !editorReady;
   $('copy').hidden = !session || stopping; $('stop').hidden = !session; $('stop').disabled = stopping;
@@ -26,6 +28,7 @@ function buttons() {
   $('forget-device').disabled = !!session || starting || forgetting;
   $('forget-device').textContent = forgetting ? 'Forgetting…' : 'Forget this device';
   $('forget-device').title = session ? 'Stop sharing before forgetting this device.' : 'Remove presenter access from this browser.';
+  $('export-psd').disabled = !editorReady || exporting;
 }
 function passwordDialog(message = '') {
   $('key-error').textContent = message; $('key-error').hidden = !message;
@@ -37,12 +40,12 @@ function capture(epoch) {
   socket.datasetEpoch = epoch;
   disconnectCapture();
   if (document.hidden || stopping) return;
-  publisher = new FramePublisher({ socket, epoch, initialSequence: sequence, fps: config.fps, maxEdge: config.maxEdge, maxFrameBytes: config.maxFrameBytes, onError: message => { state('Sharing paused'); $('notice').textContent = message; socket?.send(JSON.stringify({ type: 'pause' })); disconnectCapture(); } });
+  publisher = new FramePublisher({ socket, epoch, initialSequence: sequence, fps: config.fps, maxEdge: config.maxEdge, maxFrameBytes: config.maxFrameBytes, onError: message => { state('Sharing paused'); notice(message); socket?.send(JSON.stringify({ type: 'pause' })); disconnectCapture(); } });
   unsubscribe = frame.contentWindow.liveDrawEditor.subscribeViewport(publisher.notify);
 }
 function finish(message) {
   terminal = true; clearTimeout(reconnectTimer); disconnectCapture();
-  session = undefined; stopping = false; clearSavedSession(); socket?.close(); buttons(); state('Sharing is off'); $('count').hidden = true; $('notice').textContent = message;
+  session = undefined; stopping = false; clearSavedSession(); socket?.close(); buttons(); state('Sharing is off'); $('count').hidden = true; notice(message);
 }
 function connect() {
   if (!session || !editorReady || terminal) return;
@@ -97,19 +100,19 @@ async function start(hostKey = '') {
       if (response.status === 403 && result.error === 'Host access key required') {
         access = { authorized: false };
         const message = hostKey ? 'This browser did not keep presenter access. Allow cookies for this site and try again.' : 'Presenter access has expired or was removed. Enter the password to start sharing again.';
-        $('notice').textContent = message; state('Sharing is off'); passwordDialog(message); return false;
+        notice(message); state('Sharing is off'); passwordDialog(message); return false;
       }
       throw new Error(result.error || 'Could not start sharing. Try again.');
     }
     session = result;
     try { sessionStorage.setItem(storageKey, JSON.stringify(session)); } catch { /* This open page can share without reload persistence. */ }
     terminal = false; stopping = false;
-    $('notice').textContent = 'Anyone with the viewer link can watch until you stop sharing or the session expires.';
+    notice();
     $('host-key').value = ''; $('key-dialog').close();
     buttons(); connect(); return true;
   } catch (error) {
     const message = error.message === 'Failed to fetch' || error.name === 'TypeError' ? 'Could not reach the server. Check the connection and try again.' : error.message || 'Could not start sharing. Try again.';
-    $('notice').textContent = message; state('Sharing is off');
+    notice(message); state('Sharing is off');
     if ($('key-dialog').open) { $('key-error').textContent = message; $('key-error').hidden = false; $('host-key').focus(); }
     return false;
   } finally { starting = false; buttons(); if ($('key-dialog').open) $('host-key').focus(); }
@@ -120,13 +123,14 @@ $('key-dialog').addEventListener('cancel', event => { if (starting) event.preven
 $('key-form').addEventListener('submit', async event => { event.preventDefault(); await start($('host-key').value); });
 $('forget-device').addEventListener('click', async () => {
   if (session || starting || forgetting) return;
+  closeMore(); $('more-toggle').focus();
   forgetting = true; buttons();
   try {
     const response = await fetch('/api/presenter-access', { method: 'DELETE', credentials: 'same-origin' });
     if (!response.ok) throw new Error('Could not forget this device. Try again.');
     access = { authorized: false };
-    $('notice').textContent = 'Presenter access removed. Enter the password next time you start sharing.';
-  } catch { $('notice').textContent = 'Could not forget this device. Check the connection and try again.'; }
+    notice('Presenter access removed. Enter the password next time you start sharing.');
+  } catch { notice('Could not forget this device. Check the connection and try again.'); }
   finally { forgetting = false; buttons(); }
 });
 $('stop').addEventListener('click', () => {
@@ -136,26 +140,33 @@ $('stop').addEventListener('click', () => {
 });
 function viewerURL() { return `${location.origin}/watch/${session.id}#${session.viewerToken}`; }
 $('copy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(viewerURL()); $('notice').textContent = 'Viewer link copied. Anyone with the link can watch this session.'; }
-  catch { $('notice').textContent = 'Copy the viewer link below to share this session.'; }
+  try { await navigator.clipboard.writeText(viewerURL()); }
+  catch { /* The dialog provides a selected link when clipboard access is unavailable. */ }
   $('viewer-link').value = viewerURL(); $('link-dialog').showModal(); $('viewer-link').select();
 });
 $('close-link').addEventListener('click', () => $('link-dialog').close());
 let exportURL;
-async function exportDrawing(format) {
-  $('export').disabled = $('export-psd').disabled = true;
+async function exportPSD() {
+  if (!editorReady || exporting) return;
+  closeMore(); $('more-toggle').focus();
+  notice();
+  exporting = true; buttons();
   try {
-    const blob = await frame.contentWindow.liveDrawEditor[format === 'psd' ? 'getPSD' : 'getPNG']();
+    const blob = await frame.contentWindow.liveDrawEditor.getPSD();
     if (exportURL) URL.revokeObjectURL(exportURL);
     exportURL = URL.createObjectURL(blob);
-    $('download').href = exportURL; $('download').download = `drawing.${format}`; $('download').textContent = `Download ${format.toUpperCase()}`;
+    $('download').href = exportURL; $('download').download = 'drawing.psd'; $('download').textContent = 'Download PSD';
     $('export-dialog').showModal();
-  } catch { $('notice').textContent = 'Export is not ready. Wait for the drawing tools to load.'; }
-  finally { $('export').disabled = $('export-psd').disabled = false; }
+  } catch { notice('Could not export PSD. Try again.'); }
+  finally { exporting = false; buttons(); }
 }
-$('export').addEventListener('click', () => void exportDrawing('png'));
-$('export-psd').addEventListener('click', () => void exportDrawing('psd'));
+$('export-psd').addEventListener('click', () => void exportPSD());
 $('close-export').addEventListener('click', () => { $('export-dialog').close(); if (exportURL) { URL.revokeObjectURL(exportURL); exportURL = undefined; $('download').removeAttribute('href'); } });
+document.addEventListener('pointerdown', event => { if (!$('more').contains(event.target)) closeMore(); });
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && $('more').open) { closeMore(); $('more-toggle').focus(); event.preventDefault(); }
+});
+window.addEventListener('blur', () => { if (document.activeElement === frame) closeMore(); });
 document.addEventListener('visibilitychange', () => {
   if (!session || socket?.readyState !== WebSocket.OPEN || stopping) return;
   disconnectCapture();
@@ -166,5 +177,5 @@ document.addEventListener('visibilitychange', () => {
     if (epoch) capture(epoch);
   }
 });
-buttons();
-if (editorReady && session) connect();
+notice(); buttons();
+if (editorReady) { if (session) connect(); else state('Sharing is off'); }

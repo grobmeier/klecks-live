@@ -7,14 +7,20 @@ const html = await readFile(new URL('../public/index.html', import.meta.url), 'u
 const source = (await readFile(new URL('../public/presenter.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
 const session = { id: 'synthetic-session', presenterToken: 'synthetic-presenter', viewerToken: 'synthetic-viewer', expiresAt: Date.now() + 60000 };
 
-async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), storageDenied = false, earlyEditorReady = false } = {}) {
+async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), getPSD = async () => new Blob(['synthetic PSD']), storageDenied = false, earlyEditorReady = false } = {}) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
     value: '', checked: false, dataset: {}, hidden: false, disabled: false, open: false, textContent: '', events: new Map(),
     classList: { toggle() {} }, addEventListener(type, listener) { this.events.set(type, listener); },
     showModal() { this.open = true; }, close() { this.open = false; }, focus() { this.focused = true; }, select() {},
+    contains(target) { return this === target; }, removeAttribute(name) { delete this[name]; },
   }]));
   elements.get('editor').dataset.ready = 'true';
-  const requests = [], sockets = [], saved = new Map();
+  elements.get('editor').contentWindow = { liveDrawEditor: { getPSD } };
+  const requests = [], sockets = [], saved = new Map(), documentEvents = new Map(), windowEvents = new Map(), revoked = [];
+  class ExportURL extends URL {
+    static createObjectURL() { return 'blob:synthetic-drawing'; }
+    static revokeObjectURL(url) { revoked.push(url); }
+  }
   class Socket {
     static OPEN = 1;
     constructor(url) { this.url = url; this.events = new Map(); this.sent = []; sockets.push(this); }
@@ -24,7 +30,8 @@ async function presenter({ response = () => ({ ok: true, status: 200, json: asyn
   }
   const storage = operation => { if (storageDenied) throw new Error('Storage unavailable'); return operation(); };
   await runInNewContext(`(async () => { ${source}\n })()`, {
-    document: { hidden: false, getElementById: id => elements.get(id), addEventListener() {} },
+    document: { hidden: false, getElementById: id => elements.get(id), addEventListener(type, listener) { documentEvents.set(type, listener); } },
+    window: { addEventListener(type, listener) { windowEvents.set(type, listener); } },
     location: { origin: 'https://draw.example.org' }, WebSocket: Socket, VERSION: 1,
     sessionStorage: { getItem: key => storage(() => saved.get(key) || null), setItem: (key, value) => storage(() => saved.set(key, value)), removeItem: key => storage(() => saved.delete(key)) },
     fetch: async (path, options) => {
@@ -38,10 +45,11 @@ async function presenter({ response = () => ({ ok: true, status: 200, json: asyn
       if (options.method === 'DELETE') return forget();
       return response();
     },
-    setTimeout, clearTimeout, URL,
+    setTimeout, clearTimeout, URL: ExportURL,
   });
   return {
-    get: id => elements.get(id), requests, sockets,
+    get: id => elements.get(id), requests, sockets, revoked,
+    dispatch: (type, event) => documentEvents.get(type)(event),
     click: id => elements.get(id).events.get('click')(),
     submit: () => elements.get('key-form').events.get('submit')({ preventDefault() {} }),
     settle: () => new Promise(resolve => setImmediate(resolve)),
@@ -135,4 +143,59 @@ test('editor readiness arriving before the access check does not break initializ
   const app = await presenter({ earlyEditorReady: true, initialAccess: { authorized: true } });
   assert.equal(app.get('start').disabled, false); app.click('start'); await app.settle();
   assert.equal(app.sockets.length, 1);
+});
+
+test('routine sharing keeps the notice hidden while actionable access errors remain visible', async () => {
+  const app = await presenter({ initialAccess: { authorized: true } });
+  assert.equal(app.get('notice').hidden, true);
+  app.click('start'); await app.settle();
+  assert.equal(app.get('notice').hidden, true);
+  app.sockets[0].events.get('message')({ data: JSON.stringify({ type: 'ended', reason: 'expired' }) });
+  assert.equal(app.get('notice').hidden, false);
+  assert.match(app.get('notice').textContent, /expired/);
+});
+
+test('More dismisses on Escape and outside interaction without creating a session', async () => {
+  const app = await presenter();
+  app.get('more').open = true;
+  app.dispatch('pointerdown', { target: app.get('more') });
+  assert.equal(app.get('more').open, true);
+  let prevented = false;
+  app.dispatch('keydown', { key: 'Escape', preventDefault() { prevented = true; } });
+  assert.equal(app.get('more').open, false);
+  assert.equal(app.get('more-toggle').focused, true);
+  assert.equal(prevented, true);
+  app.get('more').open = true;
+  app.dispatch('pointerdown', { target: app.get('start') });
+  assert.equal(app.get('more').open, false);
+  assert.equal(app.requests.length, 0);
+});
+
+test('PSD export from More prevents duplicate encoding and cleans up its download', async () => {
+  let resolve, calls = 0;
+  const app = await presenter({ getPSD: () => { calls++; return new Promise(done => { resolve = done; }); } });
+  app.get('more').open = true;
+  app.click('export-psd'); app.click('export-psd');
+  assert.equal(calls, 1);
+  assert.equal(app.get('more').open, false);
+  assert.equal(app.get('export-psd').disabled, true);
+  resolve(new Blob(['synthetic PSD'])); await app.settle();
+  assert.equal(app.get('export-dialog').open, true);
+  assert.equal(app.get('download').download, 'drawing.psd');
+  assert.equal(app.get('export-psd').disabled, false);
+  app.click('close-export');
+  assert.equal(app.get('export-dialog').open, false);
+  assert.deepEqual(app.revoked, ['blob:synthetic-drawing']);
+  assert.equal(app.requests.length, 0);
+});
+
+test('a failed PSD export is visible and can be retried', async () => {
+  let fail = true;
+  const app = await presenter({ getPSD: async () => { if (fail) throw new Error('Synthetic encoding failure'); return new Blob(['synthetic PSD']); } });
+  app.click('export-psd'); await app.settle();
+  assert.equal(app.get('notice').hidden, false);
+  assert.match(app.get('notice').textContent, /Could not export PSD/);
+  assert.equal(app.get('export-psd').disabled, false);
+  fail = false; app.click('export-psd'); await app.settle();
+  assert.equal(app.get('export-dialog').open, true);
 });
