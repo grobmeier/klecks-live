@@ -256,3 +256,31 @@ late joins, viewer isolation, stop and access revocation. Anonymous image-pull
 authorization remains denied. The previous image revision `98c4a57` is retained
 for rollback. Deployment cleared sessions and remembered device access; export
 before refreshing the presenter, then sign in and share a new session link.
+
+## Presenter copy cleanup on 11 October 2026
+
+The redundant private-editor explanation and viewer-link footer are removed
+from sign-in. The presenter-access dialog uses the same shorter heading and
+remember-device guidance. Password, remembering and access-control behaviour
+are unchanged. Access probes now identify the sign-in form rather than its copy;
+the Aegis receiver also rejects an embedded editor on the unauthenticated page.
+Its compatible guard was installed and checked against the preceding image
+before deploying the cleanup.
+
+All 58 app tests, syntax checks and nine infrastructure deployment tests passed.
+An isolated Chrome review checked desktop and 390×844 sign-in layouts without
+overflow; remembering remains unchecked initially. Feature CI and
+[manual Actions run 38156502317](https://github.com/grobmeier/klecks-live/actions/runs/38156502317)
+passed Linux AMD64, hardened-container checks and the runtime-image scan with
+zero HIGH/CRITICAL findings. The deployment runs revision
+`840b3ce0ba3c91ebb32dd2a70484a079335acb1e` by immutable digest
+`sha256:482cf93e9161c4510cf69de4a797e598a859cc80ba5542081eef9e88b69f9c71`.
+
+External Mac checks confirmed exact public sign-in/style assets, private editor
+access and the existing 16 fps/1280-pixel/512 KiB limits. Authenticated public
+HTTPS/WSS checks passed protected cookies, actual editor loading, live pixels,
+late joins, viewer isolation, stop and revocation. The saved presenter password
+still works; anonymous image-pull authorization remains denied. The preceding
+image revision `16da47e` is retained for rollback. Deployment invalidated live
+sessions and remembered device access. Physical iPad/Pencil acceptance remains
+pending.
