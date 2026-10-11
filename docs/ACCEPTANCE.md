@@ -284,3 +284,37 @@ still works; anonymous image-pull authorization remains denied. The preceding
 image revision `16da47e` is retained for rollback. Deployment invalidated live
 sessions and remembered device access. Physical iPad/Pencil acceptance remains
 pending.
+
+## Compact presenter controls on 11 October 2026
+
+The agreed compact presenter bar and explicit Hide/Show controls are implemented.
+More holds PSD export and device access; PNG uses the existing Klecks Export
+action and its confirmation. Routine notice rows are removed, including after
+explicit stop. Errors and expiry remain visible. Hiding keeps a floating state
+and viewer count, placed inside the current drawing area with the viewport API.
+This geometry observer performs no encoding and is released on restoration.
+
+Syntax checks and all 64 app tests passed. New presenter fixtures cover menu
+dismissal, bounded PSD export and retry, routine versus actionable notices,
+hide/restore without editor replacement or session creation, geometry observer
+disposal, hidden status/count updates and restored Stop access.
+
+An isolated Chrome review used neutral artwork and the actual embed/relay/viewer
+at 16 fps. The bar measures 48 pixels at 768×1024, 1024×768 and 1440×900;
+the previous portrait layout used 100 pixels including its notice row. Phone
+layouts at 390×844 and 320×640 use 75 pixels over two rows. All visible toolbar
+touch targets are at least 44×44 pixels, without horizontal overflow. Hiding
+gives the editor the full viewport height. The restore control stays clear of
+the sidebar, including a left/right swap while hidden. Keyboard focus, Escape,
+editor interaction and More-menu dismissal were checked.
+
+New ink reached the separate viewer before pointer-up with controls hidden;
+Live and the viewer count remained visible. Restoring Stop ended the session
+and cleared the viewer. Native PNG and menu PSD downloads preserved 1600×1000
+dimensions; the PSD contained layers. Review screenshots and files remain in
+ignored output directories. There were no console errors; Klecks emitted a
+Canvas2D readback performance warning during drawing.
+
+These are local Chrome checks. The owner reports the preceding public revision
+works well on iPad; physical-device acceptance of this new layout and
+production rollout after approval remain separate steps.

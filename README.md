@@ -26,8 +26,9 @@ npm start
 Open `http://127.0.0.1:5055`. Start a live session, copy its viewer link and open
 that link in another browser tab. Draw normally. The audience follows the exact
 visible drawing area, letterboxed to fit its screen. You can also share the
-viewer window in a video meeting. Export PNG or layered PSD directly from the
-presenter page. Stop sharing to clear viewers and invalidate the session links.
+viewer window in a video meeting. Use **Export** inside Klecks for PNG, then
+confirm its existing Submit dialog. Use **More → Export PSD** to keep layers.
+Stop sharing to clear viewers and invalidate the session links.
 
 Local startup binds only to loopback. An iPad cannot reach this address on a
 different device. Use the HTTPS setup in [DEPLOYMENT.md](docs/DEPLOYMENT.md) for
@@ -62,6 +63,16 @@ local HTTPS helper accepts the same environment setting.
 This controls downloads from this server. Drawing code already loaded in a
 browser remains local; forgetting a device does not discard its open drawing.
 
+## Presenter controls
+
+The compact bar keeps sharing state, viewer count, Start, Copy link and Stop
+within reach. **More** contains PSD export and device access. **Hide** frees the
+bar's space for drawing while sharing continues. A floating **Show** control
+keeps the sharing state visible and restores the bar with one tap. It follows
+the drawing area when Klecks' sidebar moves or the device changes orientation.
+The bar starts visible on each page load; hiding does not reload the drawing.
+Actionable errors and session expiry still appear when needed.
+
 ## Sharing and recovery
 
 - Sharing starts off. Drawing and exports remain in the presenting browser.
@@ -72,7 +83,7 @@ browser remains local; forgetting a device does not discard its open drawing.
   for up to 30 days. Leave it unchecked on shared devices: access then uses a
   browser-session cookie with an eight-hour server expiry. Cookies must be
   enabled for this site. The app never saves the password in browser storage.
-- Stop sharing, then choose **Forget this device** to revoke this browser's
+- Stop sharing, then choose **More → Forget this device** to revoke this browser's
   presenter login. Other devices keep their own logins. Server restart clears
   all device logins, so enter the password again after restarting the relay.
 - Anyone with the viewer link can watch until the session ends or expires.
