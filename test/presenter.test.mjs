@@ -157,7 +157,10 @@ test('routine sharing keeps the notice hidden while actionable access errors rem
   assert.equal(app.get('notice').hidden, true);
   app.click('start'); await app.settle();
   assert.equal(app.get('notice').hidden, true);
-  app.sockets[0].events.get('message')({ data: JSON.stringify({ type: 'ended', reason: 'expired' }) });
+  app.sockets[0].events.get('message')({ data: JSON.stringify({ type: 'ended', reason: 'stopped' }) });
+  assert.equal(app.get('notice').hidden, true);
+  app.click('start'); await app.settle();
+  app.sockets[1].events.get('message')({ data: JSON.stringify({ type: 'ended', reason: 'expired' }) });
   assert.equal(app.get('notice').hidden, false);
   assert.match(app.get('notice').textContent, /expired/);
 });
