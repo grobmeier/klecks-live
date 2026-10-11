@@ -1,10 +1,12 @@
 # Contributing
 
-Keep the drawing engine in Klecks. The companion owns session access, transport,
-capture budgets and the audience view. Changes to the generic viewport API
-should remain reviewable without the server or browser session code.
+Live Draw keeps the drawing engine in Klecks. The companion handles session
+access, viewport capture, streaming limits and the audience page. Keep changes
+to the viewport API independent of the relay and session protocol.
 
-## Development checks
+## Development setup
+
+Install Node.js 22 or newer, npm and Git:
 
 ```sh
 npm ci
@@ -12,72 +14,87 @@ npm run prepare:klecks
 npm run build
 npm run check
 npm test
+npm start
 ```
 
-`npm test` uses real local HTTP and WebSocket connections with synthetic pixels,
-plus bounded-encoder tests. It requires permission to bind loopback sockets.
-Browser acceptance exercises the real embedded drawing tools; see the checklist
-in `docs/ACCEPTANCE.md`. Run both standalone and embedded Klecks builds when
-changing the upstream integration. The companion scripts deliberately suppress
-npm lifecycle hooks; its explicit icon, language and Parcel build commands
-prepare upstream assets.
+Open `http://127.0.0.1:5055`. Use separate presenter and viewer windows with the
+presenter visible while drawing.
 
-Validate container packaging with Docker running:
+Preparation fetches the exact public revision in `upstream.json`, applies the
+patches and stages it in `.build/klecks`. To use an existing checkout containing
+that commit:
 
 ```sh
-docker build -t klecks-live:local .
-npm run test:container
+npm run prepare:klecks -- --from /path/to/klecks
 ```
 
-The smoke test creates a uniquely named, non-root container on a temporary
-loopback port with the same read-only filesystem, capability and memory limits
-as Compose. It generates its own access key, checks packaged assets, live frame
-delivery, late joins, viewer permissions, session invalidation, Docker health
-and graceful shutdown, then removes only that container. An optional image tag
-can be passed with `npm run test:container -- your-image:tag`. This local HTTP
-test does not establish HTTPS proxy or physical iPad behaviour.
+Preparation archives the pinned Git commit, replaces only `.build/klecks` and
+applies the explicit patches. It does not include uncommitted checkout changes.
+The build runs icon, language and Parcel commands explicitly with npm lifecycle
+hooks disabled.
 
-For the local HTTPS/iPad test helper, follow [LOCAL_HTTPS.md](docs/LOCAL_HTTPS.md).
-The relay accepts an optional server factory so this helper can use Node's
-HTTPS server with the same HTTP routes and WebSocket checks. Container and
-ordinary local startup retain the default HTTP server.
+## Check a change
 
-## Upstream patch
+Run syntax checks and tests after a build. Tests use loopback HTTP/WebSocket
+connections and require permission to bind local sockets. Follow
+[Testing](docs/TESTING.md) for coverage, container checks and HTTPS/WSS checks.
 
-`upstream.json` pins the reviewed public commit. The patch adds:
+For interface changes, exercise the real editor and viewer at desktop, tablet
+and narrow-screen sizes. Check drawing, viewport transforms, sharing, stop and
+exports. Use neutral artwork and disposable viewer links.
 
-1. `ProjectViewport.subscribeViewport(listener)` and forwarding methods through
-   Easel, KlApp, Embed and the lazy EmbedWrapper. Subscribe before lazy loading
-   completes if needed. Always call the returned unsubscribe function.
-2. An opt-in `enableCanvasResize` embed parameter for the existing crop, resize
-   and rotate filters. Existing embeds retain their default controls.
+Keep changes focused. Describe the resulting behaviour and the checks you ran.
+Keep generated assets, local credentials, drawings and infrastructure out of
+source submissions. Use synthetic fixtures and example hostnames; never log
+passwords, authentication messages, cookies or complete viewer links.
 
-The callback supplies `{ canvas, width, height, transform }`. The canvas is a
-borrowed mutable surface owned by Klecks: copy it when capturing; do not mutate
-it or assume its pixels remain unchanged after the callback. The transform is
-the actual rendered view, including animation progress. Capture is not driven
-by history entries, because a stroke enters history only when it finishes.
+## Klecks viewport API
 
-To refresh the patch, start from the new public Klecks revision in a clean
-checkout, apply or adapt the integration, and write its focused diff to the
-patch file. Update `upstream.json`, run preparation from scratch, verify the
-resulting API is present and rebuild both Klecks entry points. Do not copy
-uncommitted checkout contents into the distributed editor: preparation archives
-the pinned Git commit and then applies the explicit patch.
+`patches/klecks-viewport.patch` adds:
 
-An upstream proposal can focus on the transport-independent observer first.
-Acceptance by Klecks' maintainer has not been requested or assumed.
+- `ProjectViewport.subscribeViewport(listener)`, forwarded through Easel, KlApp,
+  Embed and the lazy EmbedWrapper.
+- An opt-in `enableCanvasResize` embed setting for the existing crop, resize and
+  rotate controls.
 
-## Source boundaries
+The observer supplies `{ canvas, width, height, transform }` after rendering.
+The canvas is a borrowed mutable surface owned by Klecks. Copy it for capture;
+do not modify it or retain assumptions about its pixels after the callback.
+The transform represents the actual rendered view, including animation.
 
-Do not include generated `dist`, `.build`, `node_modules`, local environment
-files, capability links, access keys, workshop drawings, analysis graphs or
-personal infrastructure in source submissions. Use synthetic fixtures and
-neutral hostnames in examples. Do not log authentication payloads or full
-viewer links. Preserve companion, Klecks, library and font licence notices.
+Subscriptions can be created before lazy loading finishes. Call the returned
+unsubscribe function when finished. With no subscribers, Klecks performs no
+capture encoding or network work. Live capture observes rendering rather than
+history entries so strokes reach viewers before pointer release.
 
-The source preparation also applies a separate build-security patch with
-patched dependency overrides; keep it independent of the upstream viewport
-proposal. `node scripts/audit-klecks.mjs` checks the reviewed build-only advisory
-exception. CI scans the final runtime image and blocks HIGH/CRITICAL findings.
-See `docs/SECURITY.md` and `docs/ACTIONS.md` before modifying deployment controls.
+The observer is suitable for an upstream contribution on its own. Keep
+transport, authentication and audience UI changes in the companion.
+
+## Update the upstream pin
+
+1. Start from the new public Klecks revision in a clean checkout.
+2. Apply or adapt the viewport integration and save its focused diff in
+   `patches/klecks-viewport.patch`.
+3. Update `upstream.json` and prepare the source again.
+4. Build both the embedded and standalone Klecks entry points.
+5. Run the companion checks, container checks and dependency audits.
+
+`npm run build` builds the embed. After it has prepared icons and languages,
+build the standalone entry point with:
+
+```sh
+npm --prefix .build/klecks run build
+```
+
+Keep `patches/klecks-build-security.patch` separate from the viewport API patch.
+Its dependency overrides and the exact audit exception are documented in
+[Security](docs/SECURITY.md). Review them when changing the upstream pin or
+build inputs. [GitHub Actions](docs/ACTIONS.md) runs the final-image security
+scan and deployment checks.
+
+## Licences
+
+Preserve the companion's MIT licence, Klecks' copyright and MIT terms, and the
+library and font notices included by upstream. The built editor exposes its
+licence and **Settings → Licenses** dialog. See the
+[README attribution](README.md#licence-and-attribution) for distribution details.
