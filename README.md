@@ -1,157 +1,85 @@
 # Live Draw with Klecks
 
-Draw in Klecks and let an audience follow the current drawing area in a browser.
-One presenter controls each session. Viewers see live ink, zoom, pan, rotation,
-mirroring and applied edits, with no drawing tools or editing permissions.
+Draw on your iPad or computer and share a live view with anyone in a browser.
+Live Draw combines the [Klecks](https://github.com/bitbof/klecks) drawing editor
+with a presenter mode and a read-only audience view.
 
-Live Draw is an independently named MIT-licensed companion to
-[Klecks by bitbof](https://github.com/bitbof/klecks). It uses Klecks' existing
-drawing engine and a small integration patch. It is not an official Kleki service.
-The first implementation is ready for local review; physical iPad Safari and
-Apple Pencil acceptance remains required before an iPad release claim.
+Viewers follow your ink as you draw, along with zoom, pan, rotation, mirroring
+and applied edits. They see the drawing area without editor controls. Use it for
+lessons, demonstrations, workshops or a shared viewer window in a video meeting.
+
+## Features
+
+- Klecks drawing tools, layers, filters, undo and redo.
+- A viewer link for each session, with no viewer account or installation.
+- A compact sharing bar with live status, viewer count and optional hiding.
+- An audience view that fits the browser window and supports fullscreen.
+- Presenter sign-in, remembered devices and configurable editor access.
+- Local PNG and layered PSD exports.
+- Self-hosting with Docker, HTTPS and configurable streaming limits.
 
 ## Run locally
 
-Use Node.js 22 or newer, npm and Git. The container uses Node.js 24.
+Install Node.js 22 or newer, npm and Git, then run:
 
 ```sh
 npm ci
 npm run prepare:klecks
 npm run build
-npm run check
-npm test
 npm start
 ```
 
-Open `http://127.0.0.1:5055`. Start a live session, copy its viewer link and open
-that link in another browser tab. Draw normally. The audience follows the exact
-visible drawing area, letterboxed to fit its screen. You can also share the
-viewer window in a video meeting. Use **Export** inside Klecks for PNG, then
-confirm its existing Submit dialog. Use **More → Export PSD** to keep layers.
-Stop sharing to clear viewers and invalidate the session links.
+Open **http://127.0.0.1:5055**, choose **Start live**, and use **Copy link** to open
+the audience view in a separate browser window. Keep the presenter visible
+while drawing; capture pauses when its page is in the background.
 
-Local startup binds only to loopback. An iPad cannot reach this address on a
-different device. Use the HTTPS setup in [DEPLOYMENT.md](docs/DEPLOYMENT.md) for
-network access. The application does not automatically load `.env`; use
-`node --env-file=.env server/index.mjs` if you create a local environment file.
+Local startup listens on loopback. To connect an iPad or another computer, use
+[self-hosting with HTTPS](docs/DEPLOYMENT.md) or the
+[local HTTPS setup](docs/LOCAL_HTTPS.md).
 
-For a local Mac/iPad acceptance session, see [IPAD_TEST.md](docs/IPAD_TEST.md).
-It provides a temporary HTTPS setup and explicit device certificate installation
-steps, with generated keys excluded from Git, Docker and source packages.
+## Present and share
 
-The build fetches the exact public Klecks revision in `upstream.json`, applies
-`patches/klecks-viewport.patch` and builds the embedded editor. For an existing
-checkout containing that revision, `npm run prepare:klecks -- --from /path/to/klecks`
-avoids the Git download. Preparation replaces only the generated `.build/klecks`
-directory. `npm test` includes an asset integration check and therefore follows
-the first build.
+On a password-protected server, sign in with the **Presenter password** supplied
+by the operator. Choose **Remember this device** on your own device to reuse
+access on later visits. Viewers need only the copied viewer link.
 
-## Editor access
+**Hide** gives the editor the full window height. A floating **Show** button
+keeps live status and the viewer count visible, and restores the sharing bar.
+Use **Stop** to end the session and invalidate its viewer link.
 
-When `HOST_ACCESS_KEY` is set, the editor defaults to private. Sign in with the
-**Presenter password** before the drawing tools load. **Remember this device**
-reuses that authorization on later visits. The server also protects direct
-requests for editor pages, scripts and Klecks bundles. Shared viewer links remain
-read-only and do not require presenter sign-in.
+Save a PNG through **Export** inside Klecks and confirm **Submit** in its dialog.
+Use **More → Export PSD** to save layers. Drawings stay in your browser; export
+before reloading or closing the presenter. The server keeps the latest shared
+image in memory and discards it when the session ends or the server restarts.
 
-Set `EDITOR_ACCESS=public` to let visitors load the editor and draw locally;
-broadcasting still requires the presenter password. Set `EDITOR_ACCESS=private`
-to require sign-in explicitly; this setting requires `HOST_ACCESS_KEY`. Keyless
-loopback development defaults to public. Compose defaults to private, and the
-local HTTPS helper accepts the same environment setting.
+See the [presenter guide](docs/PRESENTER.md) for iPad use, sharing controls,
+exports and reconnecting.
 
-This controls downloads from this server. Drawing code already loaded in a
-browser remains local; forgetting a device does not discard its open drawing.
+## Self-host and contribute
 
-## Presenter controls
+The relay runs without a database or drawing volume. Docker Compose serves it
+on host loopback behind an HTTPS reverse proxy. A configured presenter password
+makes the editor private by default; `EDITOR_ACCESS=public` allows local drawing
+without sign-in while keeping broadcasts password-protected.
 
-The compact bar keeps sharing state, viewer count, Start, Copy link and Stop
-within reach. **More** contains PSD export and device access. **Hide** frees the
-bar's space for drawing while sharing continues. A floating **Show** control
-keeps the sharing state visible and restores the bar with one tap. It follows
-the drawing area when Klecks' sidebar moves or the device changes orientation.
-The bar starts visible on each page load; hiding does not reload the drawing.
-Actionable errors and session expiry still appear when needed.
+- [Self-hosting](docs/DEPLOYMENT.md): Docker, HTTPS, access and streaming settings.
+- [GitHub Actions](docs/ACTIONS.md): verification, image publication and deployment.
+- [Security](docs/SECURITY.md): authentication, resource limits and dependency checks.
+- [Contributing](CONTRIBUTING.md): development setup and the Klecks integration.
 
-## Sharing and recovery
+The build uses the exact Klecks revision in `upstream.json` and the patches in
+`patches/`. The drawing engine stays in Klecks; Live Draw handles capture,
+sessions, transport and the audience view. Its viewport observer is independent
+of the relay and can be used by other integrations.
 
-- Sharing starts off. Drawing and exports remain in the presenting browser.
-- On a password-protected server, enter the **Presenter password** before opening
-  the private editor, or on the first start if the editor is public. This is the
-  existing `HOST_ACCESS_KEY` supplied by the operator.
-  Select **Remember this device** on your own device to enable one-click starts
-  for up to 30 days. Leave it unchecked on shared devices: access then uses a
-  browser-session cookie with an eight-hour server expiry. Cookies must be
-  enabled for this site. The app never saves the password in browser storage.
-- Stop sharing, then choose **More → Forget this device** to revoke this browser's
-  presenter login. Other devices keep their own logins. Server restart clears
-  all device logins, so enter the password again after restarting the relay.
-- Anyone with the viewer link can watch until the session ends or expires.
-  The link contains a viewer capability in its fragment. Presenter control uses
-  a separate capability retained only in the presenter's `sessionStorage`.
-- Sessions last four hours by default. Presenter disconnects have a two-minute
-  recovery window; viewers cannot extend it. Each presenter connection gets a
-  fresh epoch and must send a new image before becoming live.
-- Hidden presenter pages pause capture. Returning to the page sends a fresh
-  view. Browsers may suspend networking while locked; physical iPad testing
-  must confirm the actual device's recovery behaviour.
-- The relay keeps only the latest complete image in memory. Stop, expiry and
-  server restart end the session. There is no server recording or project store.
-- Export work before reloading or closing the presenter. The embed does not
-  persist your project or restore it after a reload.
+## Licence and attribution
 
-The default viewer limit is 25. This is an enforced limit and a synthetic test
-size, not a measured production capacity promise. Images are capped at a longest
-edge of 1600 pixels, 10 updates per second and 2 MiB per frame. Idle artwork
-does not generate periodic capture calls. This initial implementation sends
-complete images; bandwidth increases with visual complexity and viewer count.
+Live Draw is an independently maintained companion, licensed under
+[MIT](LICENSE). Klecks is created by bitbof and retains its
+[MIT licence and copyright](UPSTREAM_LICENSE). Live Draw is not an official
+Kleki service.
 
-Presenter device access requires HTTPS for network use. Plain HTTP remains
-supported for loopback development. QR pairing, durable logins across server
-restarts and drawing autosave are not implemented in this milestone.
-
-## Design
-
-```mermaid
-flowchart LR
-    K[Klecks rendered viewport] --> O[Optional viewport observer]
-    O --> C[Bounded image capture]
-    C --> R[In-memory WebSocket relay]
-    R --> V[Read-only browser viewers]
-```
-
-The viewport observer exposes a canvas and the actual rendered transform after
-rendering completes. It is independent of the network protocol. With no
-subscribers, ordinary Klecks use performs no capture encoding or network work.
-The companion keeps one encoder and one latest pending view. Sequence numbers
-and epochs prevent stale frames from replacing newer views. Slow viewers are
-disconnected when their outgoing queue exceeds its budget.
-
-The shared image excludes toolbars, dialogs, brush cursors and SVG selection
-handles. Applied operations reach the audience; dialog previews stay local.
-An optional embed parameter enables Klecks' existing canvas resize, crop and
-rotate controls. Multi-user editing, audio/video calls, recordings, accounts and
-independent viewer navigation are outside this first milestone.
-
-## Contribute and self-host
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the upstream patch workflow,
-[DEPLOYMENT.md](docs/DEPLOYMENT.md) for Docker and HTTPS configuration, and
-[ACCEPTANCE.md](docs/ACCEPTANCE.md) for device testing and current evidence.
-
-The companion's licence is [LICENSE](LICENSE). Klecks' unchanged copyright and
-MIT terms are in [UPSTREAM_LICENSE](UPSTREAM_LICENSE) and the built editor's
-`/klecks/LICENSE`. Klecks' library and font notices remain available through
-its Settings → Licenses dialog and in the pinned upstream source. The `ws`
-runtime dependency carries its MIT licence in its package. Preserve these
+The built editor includes Klecks' licence at `/klecks/LICENSE`. Its library and
+font notices are available in **Settings → Licenses** and in the pinned upstream
+source. The `ws` runtime dependency includes its MIT licence. Preserve these
 notices when distributing source or built assets.
-
-The source pin, npm lockfiles and Docker base digests make source preparation
-repeatable. Build-stage operating-system packages can change; this is not a
-claim of byte-identical container builds. Deployment uses the exact tested
-and scanned image digest.
-
-The guarded online-test pipeline is documented in [ACTIONS.md](docs/ACTIONS.md).
-Ordinary pushes run checks; deployment requires an explicit manual main run.
-See [SECURITY.md](docs/SECURITY.md) for the access boundaries, image gate and
-reviewed build-only exception.

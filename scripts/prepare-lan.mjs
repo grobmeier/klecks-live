@@ -58,15 +58,15 @@ try {
 <key>PayloadContent</key><data>${root.raw.toString('base64')}</data>
 </dict></array></dict></plist>
 `);
-  await writeFile(directory + 'START_HERE.md', `# Live Draw iPad test\n\n` +
-    `Test URL: [${origin}](${origin})\n\n` +
+  await writeFile(directory + 'START_HERE.md', `# Live Draw local HTTPS\n\n` +
+    `Live Draw URL: [${origin}](${origin})\n\n` +
     `Certificate: **${displayName}**. Expires ${cert.validTo}.\n\n` +
     `1. Transfer [this public certificate profile](${directory}live-draw-test.mobileconfig) to your own iPad and install it in Settings → General → VPN & Device Management.\n` +
     `2. Enable its full trust in Settings → General → About → Certificate Trust Settings.\n` +
     `3. Open the test URL in Safari on the same Wi-Fi. It should open without a certificate warning.\n` +
-    `4. Start a live session and copy the access key locally from [host-key.txt](${directory}host-key.txt). Share only the viewer link.\n\n` +
+    `4. Sign in with the presenter password from [host-key.txt](${directory}host-key.txt), then choose Start live and copy the viewer link.\n\n` +
     `For a Mac viewer, import [the public CA certificate](${directory}live-draw-test-ca.cer) with Keychain Access and enable its SSL trust.\n\n` +
-    `Follow [the full test and cleanup guide](${directory}../docs/IPAD_TEST.md). Remove the test profile/certificate after testing.\n\n` +
+    `Follow [the local HTTPS and cleanup guide](${directory}../docs/LOCAL_HTTPS.md). Remove the test profile/certificate after testing.\n\n` +
     `CA SHA-256 fingerprint: ${root.fingerprint256}\n`);
   console.log(`Prepared LAN test at ${origin}`);
   console.log(`Certificate: ${displayName}; expires ${cert.validTo}`);

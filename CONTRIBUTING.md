@@ -37,7 +37,7 @@ and graceful shutdown, then removes only that container. An optional image tag
 can be passed with `npm run test:container -- your-image:tag`. This local HTTP
 test does not establish HTTPS proxy or physical iPad behaviour.
 
-For the local HTTPS/iPad test helper, follow [IPAD_TEST.md](docs/IPAD_TEST.md).
+For the local HTTPS/iPad test helper, follow [LOCAL_HTTPS.md](docs/LOCAL_HTTPS.md).
 The relay accepts an optional server factory so this helper can use Node's
 HTTPS server with the same HTTP routes and WebSocket checks. Container and
 ordinary local startup retain the default HTTP server.
