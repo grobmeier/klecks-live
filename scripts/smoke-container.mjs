@@ -92,7 +92,7 @@ try {
   console.log('PASS: non-root container with read-only filesystem and resource bounds');
 
   const anonymous = await fetch(origin + '/');
-  assert.equal(anonymous.status, 200); assert.ok((await anonymous.text()).includes('This editor is private.'));
+  assert.equal(anonymous.status, 200); assert.ok((await anonymous.text()).includes('id="login-form"'));
   assert.equal((await fetch(origin + '/klecks/embed.js')).status, 403);
   const signedIn = await fetch(origin + '/api/presenter-access', { method: 'POST', headers: { Origin: origin, 'X-Host-Key': hostKey } });
   assert.equal(signedIn.status, 200);

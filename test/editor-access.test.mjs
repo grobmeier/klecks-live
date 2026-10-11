@@ -45,7 +45,7 @@ test('anonymous presenter entry points load only sign-in, without an editor ifra
   const app = await fixture(t);
   for (const path of ['/', '/present', '/index.html', '/%69ndex.html', '/present?unused=1']) {
     const response = await request(app, path); assert.equal(response.status, 200, path);
-    const page = await response.text(); assert.ok(page.includes('This editor is private.'), path);
+    const page = await response.text(); assert.ok(page.includes('id="login-form"'), path);
     assert.ok(!page.includes('<iframe'), path); assert.ok(!page.includes('/presenter.js'), path);
     assert.equal(response.headers.get('cache-control'), 'no-store');
   }
@@ -79,14 +79,14 @@ test('presenter sign-in opens the actual editor pages and revocation gates the c
   assert.ok((await (await request(app, '/present', { cookie })).text()).includes('<iframe'));
   assert.equal((await request(app, '/api/presenter-access', { method: 'DELETE', cookie })).status, 200);
   assert.equal((await request(app, '/editor.html', { cookie })).status, 403);
-  assert.ok((await (await request(app, '/present', { cookie })).text()).includes('This editor is private.'));
+  assert.ok((await (await request(app, '/present', { cookie })).text()).includes('id="login-form"'));
 });
 
 test('expired device access cannot fetch an editor asset or presenter page', async t => {
   const app = await fixture(t, { presenterAccessLifetimeMs: 100 }); const cookie = await signIn(app);
   await delay(130);
   assert.equal((await request(app, '/klecks/embed.js', { cookie })).status, 403);
-  assert.ok((await (await request(app, '/present', { cookie })).text()).includes('This editor is private.'));
+  assert.ok((await (await request(app, '/present', { cookie })).text()).includes('id="login-form"'));
 });
 
 test('a viewer capability in a link, cookie or header cannot unlock the editor', async t => {

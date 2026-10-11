@@ -76,7 +76,7 @@ try {
   const settings = JSON.parse((await request('/api/config')).body);
   const page = await request('/'); assert.equal(page.status, 200);
   if (settings.editorAccess === 'private') {
-    assert.ok(page.body.includes('This editor is private.')); assert.ok(!page.body.includes('<iframe'));
+    assert.ok(page.body.includes('id="login-form"')); assert.ok(!page.body.includes('<iframe'));
     for (const path of ['/editor.html', '/klecks/embed.js', '/klecks%2fembed.js', '/presenter.js']) assert.equal((await request(path)).status, 403);
   } else assert.ok(page.body.includes('Start live session'));
   assert.ok(page.headers['content-security-policy'].includes(config.origin.replace(/^https/, 'wss')));

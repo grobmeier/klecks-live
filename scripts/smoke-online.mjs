@@ -46,7 +46,7 @@ async function closedSocket(ws) {
 try {
   const health = await request('/health'); assert.equal(health.status, 200);
   const page = await request('/'); assert.equal(page.status, 200);
-  const html = await page.text(); assert.ok(html.includes('This editor is private.') && !html.includes('<iframe'));
+  const html = await page.text(); assert.ok(html.includes('id="login-form"') && !html.includes('<iframe'));
   assert.equal((await request('/editor.html')).status, 403);
   assert.equal((await request('/klecks%2fembed.js')).status, 403);
   assert.equal((await request('/klecks/embed.js', { method: 'HEAD' })).status, 403);
