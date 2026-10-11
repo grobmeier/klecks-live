@@ -9,13 +9,19 @@ const session = { id: 'synthetic-session', presenterToken: 'synthetic-presenter'
 
 async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), getPSD = async () => new Blob(['synthetic PSD']), storageDenied = false, earlyEditorReady = false } = {}) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
-    value: '', checked: false, dataset: {}, hidden: false, disabled: false, open: false, textContent: '', events: new Map(),
+    value: '', checked: false, dataset: {}, style: {}, attributes: {}, hidden: false, disabled: false, open: false, textContent: '', events: new Map(),
     classList: { toggle() {} }, addEventListener(type, listener) { this.events.set(type, listener); },
     showModal() { this.open = true; }, close() { this.open = false; }, focus() { this.focused = true; }, select() {},
-    contains(target) { return this === target; }, removeAttribute(name) { delete this[name]; },
+    contains(target) { return this === target; }, removeAttribute(name) { delete this[name]; }, setAttribute(name, value) { this.attributes[name] = value; },
+    getBoundingClientRect() { return { left: 0, top: 0, width: 768, height: 1024 }; },
   }]));
   elements.get('editor').dataset.ready = 'true';
-  elements.get('editor').contentWindow = { liveDrawEditor: { getPSD } };
+  let layoutSubscriptions = 0, layoutDisposals = 0;
+  elements.get('editor').contentWindow = { liveDrawEditor: { getPSD, subscribeViewport(listener) {
+    layoutSubscriptions++;
+    listener({ canvas: { getBoundingClientRect: () => ({ left: 270, top: 0, width: 498 }) } });
+    return () => { layoutDisposals++; };
+  } } };
   const requests = [], sockets = [], saved = new Map(), documentEvents = new Map(), windowEvents = new Map(), revoked = [];
   class ExportURL extends URL {
     static createObjectURL() { return 'blob:synthetic-drawing'; }
@@ -49,6 +55,7 @@ async function presenter({ response = () => ({ ok: true, status: 200, json: asyn
   });
   return {
     get: id => elements.get(id), requests, sockets, revoked,
+    get layoutSubscriptions() { return layoutSubscriptions; }, get layoutDisposals() { return layoutDisposals; },
     dispatch: (type, event) => documentEvents.get(type)(event),
     click: id => elements.get(id).events.get('click')(),
     submit: () => elements.get('key-form').events.get('submit')({ preventDefault() {} }),
@@ -198,4 +205,46 @@ test('a failed PSD export is visible and can be retried', async () => {
   assert.equal(app.get('export-psd').disabled, false);
   fail = false; app.click('export-psd'); await app.settle();
   assert.equal(app.get('export-dialog').open, true);
+});
+
+test('hide and restore preserve the editor without starting a session and release geometry observation', async () => {
+  const app = await presenter();
+  const editor = app.get('editor');
+  app.click('hide-controls'); app.click('hide-controls');
+  assert.equal(app.get('presenter-controls').hidden, true);
+  assert.equal(app.get('show-controls').hidden, false);
+  assert.equal(app.get('show-controls').focused, true);
+  assert.equal(app.get('show-controls').attributes['aria-expanded'], 'false');
+  assert.equal(app.get('show-controls').style.left, '519px');
+  assert.equal(app.layoutSubscriptions, 1);
+  app.click('show-controls');
+  assert.equal(app.get('presenter-controls').hidden, false);
+  assert.equal(app.get('show-controls').hidden, true);
+  assert.equal(app.get('hide-controls').focused, true);
+  assert.equal(app.get('hide-controls').attributes['aria-expanded'], 'true');
+  assert.equal(app.layoutDisposals, 1);
+  assert.equal(app.get('editor'), editor);
+  assert.equal(app.requests.length, 0);
+});
+
+test('hidden controls keep sharing state and viewers current and restore access to stop', async () => {
+  const app = await presenter({ initialAccess: { authorized: true } });
+  app.click('start'); await app.settle();
+  const connection = app.sockets[0];
+  connection.readyState = 1;
+  app.click('hide-controls');
+  connection.events.get('message')({ data: JSON.stringify({ type: 'status', state: 'live', viewers: 2 }) });
+  assert.equal(app.get('compact-status').textContent, 'Live');
+  assert.equal(app.get('compact-count').textContent, '2 viewers');
+  assert.equal(app.get('compact-count').hidden, false);
+  connection.events.get('message')({ data: JSON.stringify({ type: 'status', state: 'paused', viewers: 1 }) });
+  assert.equal(app.get('compact-status').textContent, 'Sharing paused');
+  assert.equal(app.get('compact-count').textContent, '1 viewer');
+  app.click('show-controls'); app.click('stop');
+  assert.equal(connection.sent.at(-1).type, 'stop');
+  connection.events.get('message')({ data: JSON.stringify({ type: 'ended', reason: 'expired' }) });
+  assert.equal(app.get('compact-status').textContent, 'Sharing is off');
+  assert.equal(app.get('compact-count').hidden, true);
+  assert.equal(app.get('notice').hidden, false);
+  assert.equal(app.sockets.length, 1);
 });

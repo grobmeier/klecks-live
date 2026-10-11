@@ -20,6 +20,13 @@
 .presenter-more>summary:focus-visible{outline:3px solid #90c6aa;outline-offset:2px}
 .presenter-options{position:absolute;top:calc(100% + 6px);right:0;z-index:2;min-width:220px;padding:6px;background:#fff;border:1px solid #ccd6cd;border-radius:9px;box-shadow:0 8px 24px #20312d22;display:flex;flex-direction:column;gap:4px}
 .presenter-options button{text-align:left;width:100%;flex:none}
+.presenter-restore{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:1;display:flex;align-items:center;gap:6px;min-height:44px;min-width:44px;max-width:calc(100% - 16px);padding:6px 10px;border-radius:9px;box-shadow:0 2px 12px #20312d22;background:#ffffffee;font-size:12px;white-space:nowrap}
+.presenter-restore #compact-status{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.presenter-restore #compact-count{color:#6d7a73}
+.presenter-restore .restore-icon{font-size:20px;line-height:1}
+.presenter-restore .restore-icon,.presenter-restore .restore-label{flex-shrink:0}
+.presenter-restore.narrow{gap:4px;padding:6px}
+.presenter-restore.narrow #compact-count,.presenter-restore.narrow .restore-label{display:none}
 @media(max-width:600px){
   .presenter-toolbar{flex-wrap:wrap;gap:2px 8px;padding:2px 8px}
   .presenter-toolbar .actions{width:100%;justify-content:flex-end}

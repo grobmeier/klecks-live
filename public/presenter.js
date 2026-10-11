@@ -4,7 +4,8 @@ const $ = id => document.getElementById(id);
 const frame = $('editor');
 let editorReady = frame.dataset.ready === 'true', session, socket, publisher, unsubscribe, reconnectTimer, reconnectDelay = 500, stopping = false, terminal = false, starting = false, forgetting = false, exporting = false, sequence = 0;
 let config = {}, access = { authorized: false };
-frame.addEventListener('editor-ready', () => { editorReady = true; buttons(); if (session) connect(); else state('Sharing is off'); }, { once: true });
+let controlsHidden = false, unsubscribeControls, restoreBounds = '';
+frame.addEventListener('editor-ready', () => { editorReady = true; buttons(); observeControls(); if (session) connect(); else state('Sharing is off'); }, { once: true });
 config = await fetch('/api/config', { cache: 'no-store' }).then(r => r.json());
 access = { authorized: !config.hostKeyRequired };
 if (config.hostKeyRequired) {
@@ -16,9 +17,36 @@ if (config.hostKeyRequired) {
 const storageKey = 'live-draw.presenter';
 function clearSavedSession() { try { sessionStorage.removeItem(storageKey); } catch { /* Keep sharing usable when browser storage is unavailable. */ } }
 try { const saved = JSON.parse(sessionStorage.getItem(storageKey)); if (saved?.expiresAt > Date.now()) session = saved; else clearSavedSession(); } catch { clearSavedSession(); }
-function state(text, live = false) { $('status').textContent = text; $('indicator').classList.toggle('live', live); }
+function state(text, live = false) {
+  for (const id of ['status', 'compact-status']) $(id).textContent = text;
+  for (const id of ['indicator', 'compact-indicator']) $(id).classList.toggle('live', live);
+}
+function viewers(count) {
+  for (const id of ['count', 'compact-count']) { $(id).hidden = count === undefined; $(id).textContent = count === undefined ? '' : `${count} ${count === 1 ? 'viewer' : 'viewers'}`; }
+}
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
 function closeMore() { $('more').open = false; }
+function observeControls() {
+  if (!controlsHidden || !editorReady || unsubscribeControls) return;
+  // Borrow only viewport geometry; this does not encode or publish an image.
+  unsubscribeControls = frame.contentWindow.liveDrawEditor.subscribeViewport(({ canvas }) => {
+    const bounds = canvas.getBoundingClientRect(), host = frame.getBoundingClientRect();
+    const geometry = [host.left + bounds.left + bounds.width / 2, host.top + bounds.top + 8, Math.max(44, bounds.width - 16)];
+    if (geometry.join() === restoreBounds) return;
+    restoreBounds = geometry.join();
+    const restore = $('show-controls');
+    restore.style.left = `${geometry[0]}px`; restore.style.top = `${geometry[1]}px`; restore.style.maxWidth = `${geometry[2]}px`;
+    restore.classList.toggle('narrow', bounds.width < 200);
+  });
+}
+function hideControls(hidden) {
+  controlsHidden = hidden; closeMore();
+  $('presenter-controls').hidden = hidden; $('show-controls').hidden = !hidden;
+  for (const id of ['hide-controls', 'show-controls']) $(id).setAttribute('aria-expanded', String(!hidden));
+  if (hidden) observeControls();
+  else { unsubscribeControls?.(); unsubscribeControls = undefined; restoreBounds = ''; }
+  $(hidden ? 'show-controls' : 'hide-controls').focus({ preventScroll: true });
+}
 function buttons() {
   $('start').hidden = !!session; $('start').disabled = starting || forgetting || !editorReady;
   $('copy').hidden = !session || stopping; $('stop').hidden = !session; $('stop').disabled = stopping;
@@ -45,7 +73,7 @@ function capture(epoch) {
 }
 function finish(message) {
   terminal = true; clearTimeout(reconnectTimer); disconnectCapture();
-  session = undefined; stopping = false; clearSavedSession(); socket?.close(); buttons(); state('Sharing is off'); $('count').hidden = true; notice(message);
+  session = undefined; stopping = false; clearSavedSession(); socket?.close(); buttons(); state('Sharing is off'); viewers(); notice(message);
 }
 function connect() {
   if (!session || !editorReady || terminal) return;
@@ -67,7 +95,7 @@ function connect() {
       else capture(message.epoch);
     }
     if (['ready', 'status'].includes(message.type)) {
-      $('count').hidden = false; $('count').textContent = `${message.viewers} ${message.viewers === 1 ? 'viewer' : 'viewers'}`;
+      viewers(message.viewers);
       if (!stopping) state(message.state === 'live' ? 'Live' : message.state === 'paused' ? 'Sharing paused' : 'Connecting…', message.state === 'live');
     }
   });
@@ -162,6 +190,8 @@ async function exportPSD() {
 }
 $('export-psd').addEventListener('click', () => void exportPSD());
 $('close-export').addEventListener('click', () => { $('export-dialog').close(); if (exportURL) { URL.revokeObjectURL(exportURL); exportURL = undefined; $('download').removeAttribute('href'); } });
+$('hide-controls').addEventListener('click', () => hideControls(true));
+$('show-controls').addEventListener('click', () => hideControls(false));
 document.addEventListener('pointerdown', event => { if (!$('more').contains(event.target)) closeMore(); });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && $('more').open) { closeMore(); $('more-toggle').focus(); event.preventDefault(); }

@@ -16,8 +16,12 @@
         <button id="forget-device" hidden>Forget this device</button>
       </div>
     </details>
+    <button id="hide-controls" aria-label="Hide presenter controls" aria-controls="presenter-controls" aria-expanded="true">Hide</button>
   </div>
 </header>
+<button id="show-controls" class="presenter-restore" aria-label="Show presenter controls" aria-describedby="compact-status compact-count" aria-controls="presenter-controls" aria-expanded="false" title="Show presenter controls" hidden>
+  <span class="indicator" id="compact-indicator" aria-hidden="true"></span><span id="compact-status" role="status" aria-live="polite">Loading drawing tools…</span><span id="compact-count" hidden></span><span class="restore-icon" aria-hidden="true">≡</span><span class="restore-label" aria-hidden="true">Show</span>
+</button>
 <div class="notice" id="notice" role="status" hidden></div>
 <iframe id="editor" title="Klecks drawing tools" src="/editor.html"></iframe>
 <dialog id="key-dialog"><form id="key-form" method="post" action="/api/presenter-access"><h2>Presenter access</h2><label>Presenter password<input id="host-key" name="presenter-password" type="password" autocomplete="current-password" aria-describedby="key-error" required></label><label class="remember-device"><input id="remember-device" type="checkbox" aria-describedby="remember-help">Remember this device</label><p id="remember-help" class="help">Use only on your own device. Access lasts up to 30 days.</p><p id="key-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" id="cancel-key">Cancel</button><button id="submit-key" class="primary" type="submit">Start sharing</button></div></form></dialog>
