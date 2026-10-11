@@ -1,81 +1,96 @@
-# Guarded GitHub Actions deployment
+# GitHub Actions
 
-Every main/feature/fix push and pull request runs verification on an isolated
-GitHub-hosted Ubuntu runner. Deployment is a separate manual choice, accepted
-only for `main`. It requires the `online-test` environment and its dedicated
-SSH key. No self-hosted runner, general administrator SSH key or long-lived
-registry token is required.
+The workflow in `.github/workflows/pipeline.yml` verifies pushes to `main`,
+`feature/**` and `bugfix/**`, and all pull requests. Deployment runs only through
+manual dispatch on `main` with **deploy** enabled.
 
-The pipeline checks syntax and runtime advisories, builds the pinned editor
-and exact Linux image, runs the integration and hardened-container tests, and
-scans the final image with a checksum-pinned Trivy release. HIGH/CRITICAL image
-findings fail the workflow, including findings without a vendor fix. The
-editor build has one explicit exception documented in [SECURITY.md](SECURITY.md).
+## Verification
 
-Only a successful manual run uploads its exact tested image for the deployment
-job. That job publishes the private GHCR package with its temporary repository
-token and sends an immutable digest plus full Git revision to the confined
-server receiver. Its temporary registry token goes over SSH stdin, never a
-command argument. The receiver verifies the image label and platform, starts
-only Live Draw, checks private readiness and rolls back on failure. It removes
-temporary registry authentication. The presenter password stays on the server.
+The GitHub-hosted Ubuntu job:
 
-Actions are pinned to full commits with minimal job permissions, following
-[GitHub's secure-use guidance](https://docs.github.com/en/actions/reference/security/secure-use).
-Dependency updates are proposed weekly through Dependabot. Review and verify
-them; they cannot deploy on a push.
+1. Installs the companion's locked dependencies with lifecycle hooks disabled.
+2. Checks JavaScript syntax and audits runtime dependencies.
+3. Builds the pinned Klecks editor and a Linux AMD64 container image.
+4. Extracts its built assets and runs the application tests.
+5. Runs the hardened-container smoke test against that image.
+6. Scans the image with a checksum-pinned Trivy release.
 
-## First activation
+HIGH and CRITICAL image findings fail verification, including findings without
+a vendor fix. The editor's build-only advisory exception is documented in
+[Security](SECURITY.md). The security report is retained as a workflow artifact
+for 14 days.
 
-The infrastructure receiver and scoped installer are maintained in the private
-Aegis infrastructure repository. The operator must inspect the target read-only
-and approve provisioning before installing them. Use a new Ed25519 deployment
-key, protect its private half locally, and put only that key in the environment
-secret `LIVE_DRAW_SSH_KEY`. Register these environment variables:
+Actions use pinned commit revisions and job-specific permissions. Verification
+has no deployment secret or package-write permission. Dependabot proposes
+weekly updates; dependency pushes run verification without deploying.
 
-| Variable | Value |
-| --- | --- |
-| `LIVE_DRAW_HOST` | Confirmed server hostname or address |
-| `LIVE_DRAW_SSH_USER` | `klecks-live-deploy` |
-| `LIVE_DRAW_KNOWN_HOSTS` | Server host-key entry verified through the existing administrator connection |
+## Deployment configuration
 
-Require environment review if the account's GitHub plan supports it. Manual
-dispatch on main remains required regardless. Keep the repository and its new
-GHCR package private; verify package visibility after first publication.
+The `online-test` GitHub environment holds the dedicated deployment SSH key and
+server connection settings:
 
-1. Install the confined receiver without activating the public route. This
-   generates a new server-only presenter password and preserves it on repeat
-   installation. It does not start an empty image or modify other services.
-2. Merge the verified workflow into main and choose **Run workflow**, with
-   **deploy** enabled. The first receiver run checks local private readiness;
-   its result explicitly reports that public verification is still pending.
-3. Activate only the new Caddy route after the first image is healthy. Validate
-   the entire proxy configuration before reload and wait for trusted HTTPS.
-   Run the authenticated HTTPS/WSS smoke inside the runtime container. No
-   presenter password is sent to GitHub.
-4. Mark the route active. All subsequent deployments must pass the public
-   HTTPS/WSS check as well as local readiness, or restore the previous image.
-5. Open the public sign-in page on the iPad. Obtain the generated presenter
-   password through the operator's private channel, then test a disposable
-   drawing and a viewer link on another device.
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | `LIVE_DRAW_SSH_KEY` | Private key for the confined deployment account |
+| Variable | `LIVE_DRAW_HOST` | Server hostname or address |
+| Variable | `LIVE_DRAW_SSH_USER` | `klecks-live-deploy` |
+| Variable | `LIVE_DRAW_KNOWN_HOSTS` | Independently verified server host-key entry |
 
-For the Aegis pilot, the reviewed policy uses a loopback-only port, two sessions,
-ten viewers per session, sixteen frames per second, a 1280-pixel maximum edge and
-512 KiB image limit. It has no database or persistent drawing volume. Existing
-service/secrets Borg roots cover operator configuration and deployment receipts;
-live drawings must be exported separately.
+Restrict the environment to `main` and configure reviewers to suit your release
+policy. Pin the host key before adding it to the environment; SSH requires a
+matching key and rejects unknown hosts.
 
-## Later deployment and rollback
+The supplied publication step targets `grobmeier/klecks-live` and
+`ghcr.io/grobmeier/klecks-live`. A fork must update the repository guards, registry
+prefix and Docker source label together with the server receiver's allowlist.
+Set repository and package visibility according to your distribution policy.
 
-Export active drawings before running a deployment or rollback. Restart clears
-all live sessions and remembered-device logins. The previous digest remains
-available for rollback; this does not recover the in-memory drawing session.
+## Server receiver
 
-The server's status command reports the running identity and local restrictions
-without creating a session. Its rollback command can restore only the previous
-image from this repository. A deploy key permits these three receiver commands
-and has no shell, forwarding or general Docker access.
+The workflow requires a confined SSH receiver provisioned by the operator.
+The receiver is maintained separately from this application repository. It
+accepts only:
 
-After every change, confirm the Actions result, server image digest/revision,
-private sign-in and direct-asset denial, trusted HTTPS/WSS delivery and viewer
-permissions. A workflow result alone does not establish iPad acceptance.
+- `deploy <sha256-digest> <full-git-revision>`
+- `status`
+- `rollback`
+
+The deployment identity has no interactive shell, forwarding or general Docker
+access. The receiver accepts images only from the configured package, verifies
+the Linux AMD64 platform and revision label, and updates only Live Draw.
+Presenter credentials and Compose configuration stay on the server.
+
+Provision the receiver and loopback service port before activating the HTTPS
+route. Establish local private-editor readiness, configure the proxy, then
+enable public HTTPS/WSS checks for subsequent deployments. Those checks cover
+sign-in, protected assets, live frame delivery and viewer permissions.
+
+## Deploy a revision
+
+Export active drawings before deployment. A restart ends sessions and clears
+remembered-device access.
+
+In GitHub, open **Actions → Verify and deploy Live Draw → Run workflow**.
+Select `main` and enable **deploy**. From the command line:
+
+```sh
+gh workflow run pipeline.yml --ref main -f deploy=true
+```
+
+A successful verification job passes its exact tested image to deployment as
+an artifact retained for one day. Deployment publishes it to GHCR using the
+short-lived repository token and sends the immutable digest and Git revision
+to the receiver. Registry authentication travels over SSH stdin and is removed
+from the server after the pull. The presenter password never goes to GitHub.
+
+## Verify and roll back
+
+Confirm the Actions result and compare the receiver's reported revision and
+image digest with the deployed revision. Check trusted HTTPS, presenter sign-in,
+protected editor assets and read-only viewer delivery using the
+[online smoke check](TESTING.md#deployed-httpswss).
+
+Failed readiness restores the previous image, or removes a failed first
+installation. The receiver also provides explicit rollback to its retained
+previous digest. Rollback restores application code; sessions and device
+logins must be created again.
