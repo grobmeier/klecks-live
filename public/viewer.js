@@ -1,4 +1,4 @@
-import { decodeFrame, VERSION, socketProtocols, secureOrigin } from './protocol.js';
+import { decodeFrame, VERSION, socketProtocols, secureOrigin, socketAvailable } from './protocol.js';
 const canvas = document.getElementById('drawing'), context = canvas.getContext('2d');
 const status = document.getElementById('status'), message = document.getElementById('message'), indicator = document.getElementById('indicator');
 const id = location.pathname.split('/').pop(), token = location.hash.slice(1);
@@ -51,10 +51,17 @@ function connect() {
       else setState('Waiting for the presenter', 'Waiting for a fresh drawing update.', false, true);
     }
   });
-  current.addEventListener('close', event => {
+  current.addEventListener('close', async event => {
     if (terminal || current !== socket) return;
     generation++; pending = undefined; hasFreshFrame = false; relayState = 'waiting';
     if (event.code === 1008) { terminal = true; setState('Session unavailable', 'Check the viewer link or ask the presenter for a new one.', false, true); return; }
+    try {
+      if (!await socketAvailable({ role: 'viewer', id, token }, fetch)) {
+        if (terminal || current !== socket) return;
+        terminal = true; setState('Session unavailable', 'Check the viewer link or ask the presenter for a new one.', false, true); return;
+      }
+    } catch { /* A failed probe can be an ordinary network interruption. */ }
+    if (terminal || current !== socket) return;
     setState('Reconnecting', 'Connection lost. Waiting to rejoin the session.');
     retryTimer = setTimeout(connect, retry); retry = Math.min(10000, retry * 2);
   });

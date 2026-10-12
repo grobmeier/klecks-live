@@ -64,9 +64,7 @@ export function socketAuthentication(header) {
   if (protocols.length !== 2 || protocols[0] !== `live-draw.v${VERSION}` || !protocols[1].startsWith('live-draw-auth.')) throw new Error('Invalid socket authentication');
   const json = decodeURIComponent(protocols[1].slice('live-draw-auth.'.length));
   if (encoder.encode(json).length > 2048) throw new Error('Invalid socket authentication');
-  const auth = JSON.parse(json);
-  if (auth.type !== 'auth' || auth.v !== VERSION || !['presenter', 'viewer'].includes(auth.role)) throw new Error('Invalid socket authentication');
-  return auth;
+  return validateSocketAuthentication(JSON.parse(json));
 }
 
 export function secureOrigin(origin) {
@@ -74,4 +72,16 @@ export function secureOrigin(origin) {
     const url = new URL(origin);
     return url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
   } catch { return false; }
+}
+
+export function validateSocketAuthentication(auth) {
+  if (!auth || auth.type !== 'auth' || auth.v !== VERSION || !['presenter', 'viewer'].includes(auth.role) ||
+      typeof auth.id !== 'string' || auth.id.length > 64 || typeof auth.token !== 'string' || auth.token.length > 256) throw new Error('Invalid socket authentication');
+  return { type: 'auth', v: VERSION, id: auth.id, role: auth.role, token: auth.token };
+}
+
+export async function socketAvailable(auth, request) {
+  const response = await request('/api/socket-access', { method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'auth', v: VERSION, ...auth }) });
+  return response.status !== 403;
 }

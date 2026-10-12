@@ -5,7 +5,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
-import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION, socketAuthentication } from '../public/protocol.js';
+import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION, socketAuthentication, validateSocketAuthentication } from '../public/protocol.js';
 import { configuration, validateTransport, validateMediaBudget } from './config.mjs';
 import { IngressBudget } from './ingress.mjs';
 import { clientAddressResolver } from './client-address.mjs';
@@ -97,6 +97,18 @@ export function createApplication(overrides = {}, createServer = http.createServ
     try {
       if (req.url === '/health' && req.method === 'GET') return json(res, 200, { status: 'ok' });
       if (req.url === '/api/config' && req.method === 'GET') return json(res, 200, { v: VERSION, hostKeyRequired: !!config.hostKey, editorAccess: config.editorAccess, fps: config.fps, maxEdge: config.maxImageEdge, maxFrameBytes: config.maxFrameBytes });
+      if (req.url === '/api/socket-access' && req.method === 'POST') {
+        if (req.headers.origin !== origin) { req.resume(); return json(res, 403, { available: false }); }
+        if (Number(req.headers['content-length']) > 2048) { req.resume(); return json(res, 413, { error: 'Authentication too large' }, { Connection: 'close' }); }
+        const chunks = []; let size = 0;
+        for await (const chunk of req) { size += chunk.length; if (size > 2048) throw new Error('Authentication too large'); chunks.push(chunk); }
+        const auth = validateSocketAuthentication(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        expire();
+        const candidate = sessions.get(auth.id);
+        if (!candidate || !matches(auth.token, auth.role === 'presenter' ? candidate.presenterHash : candidate.viewerHash)) return json(res, 403, { available: false });
+        if (limited(req, 'socket-probes')) return json(res, 429, { error: 'Too many attempts' });
+        return json(res, 200, { available: true });
+      }
       if (req.url === '/api/presenter-access') {
         if (req.method === 'GET') return json(res, 200, presenterAccess.status(req));
         if (!['POST', 'DELETE'].includes(req.method)) return json(res, 405, { error: 'Method not allowed' });

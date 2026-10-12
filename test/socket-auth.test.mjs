@@ -56,3 +56,26 @@ test('only one presenter receive slot is reserved per session before the first m
   const closed = once(socket, 'close'); socket.terminate(); await closed; await delay(10);
   assert.equal(await upgrade(app.origin, protocols), 101);
 });
+
+test('untrusted authentication fields cannot become server lifecycle callbacks', async t => {
+  const { socketProtocols } = await import('../public/protocol.js');
+  const { once } = await import('node:events');
+  const { setTimeout: delay } = await import('node:timers/promises');
+  const app = createApplication({ port: 0 }); await app.listen(); t.after(() => app.close());
+  const session = await (await fetch(app.origin + '/api/sessions', { method: 'POST', headers: { Origin: app.origin } })).json();
+  const socket = new WebSocket(app.origin.replace(/^http/, 'ws') + '/socket', socketProtocols({ id: session.id, role: 'viewer', token: session.viewerToken, releasePending: 'not a callback' }), { headers: { Origin: app.origin } });
+  socket.on('error', () => {}); await once(socket, 'open'); const closed = once(socket, 'close'); socket.terminate(); await closed; await delay(10);
+  assert.equal((await fetch(app.origin + '/health')).status, 200);
+});
+
+test('bounded access probes distinguish expired capabilities from temporary connection failures', async t => {
+  const app = createApplication({ port: 0 }); await app.listen(); t.after(() => app.close());
+  const session = await (await fetch(app.origin + '/api/sessions', { method: 'POST', headers: { Origin: app.origin } })).json();
+  const auth = { type: 'auth', v: 1, id: session.id, role: 'viewer', token: session.viewerToken };
+  const probe = (value, origin = app.origin) => fetch(app.origin + '/api/socket-access', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+  assert.equal((await probe(auth)).status, 200);
+  assert.equal((await probe({ ...auth, role: 'presenter' })).status, 403);
+  assert.equal((await probe(auth, 'https://unrelated.example')).status, 403);
+  assert.equal((await probe({ ...auth, extra: 'x'.repeat(3000) })).status, 413);
+  assert.equal((await probe({ ...auth, id: 'expired-session' })).status, 403);
+});

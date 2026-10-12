@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { socketProtocols, secureOrigin } from '../public/protocol.js';
+import { socketProtocols, secureOrigin, socketAvailable } from '../public/protocol.js';
 import { decodeFrame, encodeFrame, VERSION } from '../public/protocol.js';
 
 const html = await readFile(new URL('../public/viewer.html', import.meta.url), 'utf8');
@@ -10,7 +10,7 @@ const source = (await readFile(new URL('../public/viewer.js', import.meta.url), 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY7sAAAAASUVORK5CYII=', 'base64');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function viewer(t, origin = 'https://draw.example.org') {
+async function viewer(t, origin = 'https://draw.example.org', socketStatus = 200) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
     dataset: {}, hidden: id === 'drawing', textContent: '', events: new Map(),
     classList: { toggle() {} }, addEventListener(type, listener) { this.events.set(type, listener); },
@@ -31,14 +31,14 @@ async function viewer(t, origin = 'https://draw.example.org') {
     document: { getElementById: id => elements.get(id) },
     window: { addEventListener(type, listener) { windowEvents.set(type, listener); } },
     location: { origin, pathname: '/view/fixture', hash: '#synthetic-viewer' },
-    fetch: async () => ({ json: async () => ({ maxFrameBytes: 2048, maxEdge: 1600 }) }),
-    WebSocket: Socket, socketProtocols, secureOrigin, Image: FrameImage, URL: FrameURL, Blob, decodeFrame, VERSION, setTimeout, clearTimeout,
+    fetch: async path => path === '/api/socket-access' ? { status: socketStatus } : { json: async () => ({ maxFrameBytes: 2048, maxEdge: 1600 }) },
+    WebSocket: Socket, socketProtocols, secureOrigin, socketAvailable, Image: FrameImage, URL: FrameURL, Blob, decodeFrame, VERSION, setTimeout, clearTimeout,
   });
   t.after(() => windowEvents.get('pagehide')());
   const message = data => sockets[0].events.get('message')({ data: JSON.stringify(data) });
   if (sockets.length) message({ type: 'ready', epoch: 'test', state: 'live' });
   return {
-    get: id => elements.get(id), sockets, completions, painted, revoked, message,
+    get: id => elements.get(id), close: code => sockets[0].events.get('close')({ code }), sockets, completions, painted, revoked, message,
     frame: (seq, epoch = 'test') => sockets[0].events.get('message')({ data: encodeFrame({ epoch, seq, width: 1, height: 1, mime: 'image/png' }, png) }),
   };
 }
@@ -92,4 +92,12 @@ test('remote HTTP viewers refuse to transmit their capability', async t => {
   const app = await viewer(t, 'http://draw.example.org');
   assert.equal(app.sockets.length, 0); assert.equal(app.get('drawing').hidden, true);
   assert.match(app.get('status').textContent, /HTTPS/);
+});
+
+test('a rejected upgrade becomes Session unavailable instead of reconnecting forever', async t => {
+  const app = await viewer(t, 'https://draw.example.org', 403);
+  app.frame(1); app.completions[0](); await settle();
+  await app.close(1006);
+  assert.equal(app.get('status').textContent, 'Session unavailable');
+  assert.equal(app.get('drawing').hidden, true);
 });

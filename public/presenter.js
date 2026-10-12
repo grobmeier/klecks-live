@@ -1,5 +1,5 @@
 import { FramePublisher } from './capture.js';
-import { VERSION, socketProtocols, secureOrigin } from './protocol.js';
+import { VERSION, socketProtocols, secureOrigin, socketAvailable } from './protocol.js';
 const $ = id => document.getElementById(id);
 const frame = $('editor');
 let editorReady = frame.dataset.ready === 'true', session, socket, publisher, unsubscribe, reconnectTimer, reconnectDelay = 500, stopping = false, terminal = false, starting = false, forgetting = false, exporting = false, sequence = 0;
@@ -100,10 +100,17 @@ function connect() {
       if (!stopping) state(message.state === 'live' ? 'Live' : message.state === 'paused' ? 'Sharing paused' : 'Connecting…', message.state === 'live');
     }
   });
-  current.addEventListener('close', event => {
+  current.addEventListener('close', async event => {
     if (current !== socket || terminal || !session) return;
     disconnectCapture();
     if (event.code === 1008 || session.expiresAt <= Date.now()) { finish('Session unavailable. Start a new session to share again.'); return; }
+    try {
+      if (!await socketAvailable({ role: 'presenter', id: session.id, token: session.presenterToken }, fetch)) {
+        if (current !== socket || terminal || !session) return;
+        finish('Session unavailable. Start a new session to share again.'); return;
+      }
+    } catch { /* Retry when the network prevents checking session access. */ }
+    if (current !== socket || terminal || !session) return;
     state(stopping ? 'Stopping when reconnected…' : 'Reconnecting…');
     reconnectTimer = setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(10000, reconnectDelay * 2);
   });

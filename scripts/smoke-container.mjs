@@ -23,6 +23,8 @@ await once(reservation, 'listening');
 const port = reservation.address().port;
 await new Promise(resolve => reservation.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
+// Exercise the private HTTP backend with the HTTPS proxy's configured origin.
+const publicOrigin = 'https://draw.example.org';
 const auth = (session, role) => ({ id: session.id, role, token: session[role === 'presenter' ? 'presenterToken' : 'viewerToken'] });
 
 async function closedSocket(ws) {
@@ -31,7 +33,7 @@ async function closedSocket(ws) {
 }
 
 async function connect(credentials) {
-  const ws = new WebSocket(origin.replace(/^http/, 'ws') + '/socket', socketProtocols(credentials || {}), { headers: { Origin: origin } });
+  const ws = new WebSocket(origin.replace(/^http/, 'ws') + '/socket', socketProtocols(credentials || {}), { headers: { Origin: publicOrigin } });
   sockets.add(ws);
   const messages = [], waiters = [];
   ws.on('error', () => {});
@@ -78,7 +80,7 @@ try {
     '--security-opt', 'no-new-privileges', '--memory', '256m', '--memory-swap', '256m', '--cpus', '1', '--pids-limit', '64', '--init',
     '--publish', `127.0.0.1:${port}:5055`, '--env', 'PUBLIC_ORIGIN', '--env', 'HOST_ACCESS_KEY',
     '--env', 'EDITOR_ACCESS=private',
-    '--health-interval', '1s', image], { env: { ...process.env, PUBLIC_ORIGIN: origin, HOST_ACCESS_KEY: hostKey } });
+    '--health-interval', '1s', image], { env: { ...process.env, PUBLIC_ORIGIN: publicOrigin, HOST_ACCESS_KEY: hostKey } });
   await waitHealthy();
 
   const inspect = JSON.parse((await docker(['inspect', '--format',
@@ -94,7 +96,7 @@ try {
   const anonymous = await fetch(origin + '/');
   assert.equal(anonymous.status, 200); assert.ok((await anonymous.text()).includes('id="login-form"'));
   assert.equal((await fetch(origin + '/klecks/embed.js')).status, 403);
-  const signedIn = await fetch(origin + '/api/presenter-access', { method: 'POST', headers: { Origin: origin, 'X-Host-Key': hostKey } });
+  const signedIn = await fetch(origin + '/api/presenter-access', { method: 'POST', headers: { Origin: publicOrigin, 'X-Host-Key': hostKey } });
   assert.equal(signedIn.status, 200);
   const cookie = signedIn.headers.get('set-cookie').split(';')[0];
 
@@ -111,13 +113,13 @@ try {
   }
   const configResponse = await fetch(origin + '/api/config');
   assert.equal(configResponse.status, 200);
-  assert.ok(configResponse.headers.get('content-security-policy').includes(origin.replace(/^http/, 'ws')));
+  assert.ok(configResponse.headers.get('content-security-policy').includes(publicOrigin.replace(/^http/, 'ws')));
   console.log('PASS: built presenter, viewer, patched editor, licences and configuration');
-  assert.equal((await fetch(origin + '/api/presenter-access', { method: 'DELETE', headers: { Origin: origin, Cookie: cookie } })).status, 200);
+  assert.equal((await fetch(origin + '/api/presenter-access', { method: 'DELETE', headers: { Origin: publicOrigin, Cookie: cookie } })).status, 200);
   assert.equal((await fetch(origin + '/editor.html', { headers: { Cookie: cookie } })).status, 403);
 
   const create = key => fetch(origin + '/api/sessions', {
-    method: 'POST', headers: { Origin: origin, 'X-Host-Key': key },
+    method: 'POST', headers: { Origin: publicOrigin, 'X-Host-Key': key },
   });
   assert.equal((await create('wrong')).status, 403);
   const created = await create(hostKey); assert.equal(created.status, 201);
@@ -138,10 +140,7 @@ try {
   assert.equal((await closed)[0], 1008);
   presenter.ws.send(JSON.stringify({ type: 'stop' }));
   await viewer.next(message => message.type === 'ended');
-  const expired = await connect();
-  const expiredClosed = closedSocket(expired.ws);
-  expired.ws.send(JSON.stringify({ type: 'auth', v: 1, ...auth(session, 'viewer') }));
-  assert.equal((await expiredClosed)[0], 1008);
+  await assert.rejects(() => connect(auth(session, 'viewer')), /403/);
   console.log('PASS: viewer cannot stop sharing; presenter stop invalidates the session');
 
   for (let attempt = 0; attempt < 10; attempt++) {

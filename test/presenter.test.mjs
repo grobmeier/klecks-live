@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { socketProtocols, secureOrigin } from '../public/protocol.js';
+import { socketProtocols, secureOrigin, socketAvailable } from '../public/protocol.js';
 
 const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../public/presenter.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
 const session = { id: 'synthetic-session', presenterToken: 'synthetic-presenter', viewerToken: 'synthetic-viewer', expiresAt: Date.now() + 60000 };
 
-async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), getPSD = async () => new Blob(['synthetic PSD']), storageDenied = false, earlyEditorReady = false, origin = 'https://draw.example.org' } = {}) {
+async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), getPSD = async () => new Blob(['synthetic PSD']), storageDenied = false, earlyEditorReady = false, origin = 'https://draw.example.org', probeStatus = 200 } = {}) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
     value: '', checked: false, dataset: {}, style: {}, attributes: {}, hidden: false, disabled: false, open: false, textContent: '', events: new Map(),
     classList: { toggle() {} }, addEventListener(type, listener) { this.events.set(type, listener); },
@@ -39,7 +39,7 @@ async function presenter({ response = () => ({ ok: true, status: 200, json: asyn
   await runInNewContext(`(async () => { ${source}\n })()`, {
     document: { hidden: false, getElementById: id => elements.get(id), addEventListener(type, listener) { documentEvents.set(type, listener); } },
     window: { addEventListener(type, listener) { windowEvents.set(type, listener); } },
-    location: { origin }, WebSocket: Socket, socketProtocols, secureOrigin, VERSION: 1,
+    location: { origin }, WebSocket: Socket, socketProtocols, secureOrigin, socketAvailable, VERSION: 1,
     sessionStorage: { getItem: key => storage(() => saved.get(key) || null), setItem: (key, value) => storage(() => saved.set(key, value)), removeItem: key => storage(() => saved.delete(key)) },
     fetch: async (path, options) => {
       if (path === '/api/config') {
@@ -49,6 +49,7 @@ async function presenter({ response = () => ({ ok: true, status: 200, json: asyn
       if (path === '/api/presenter-access' && !options.method) return { ok: true, json: async () => initialAccess };
       requests.push({ path, method: options.method, key: options.headers?.['X-Host-Key'], remembered: options.headers?.['X-Remember-Device'] });
       if (path === '/api/sessions') return creation();
+      if (path === '/api/socket-access') return { status: probeStatus };
       if (options.method === 'DELETE') return forget();
       return response();
     },
@@ -258,4 +259,13 @@ test('remote HTTP presenting refuses password and session transmission', async (
   app.click('start'); app.get('host-key').value = 'synthetic-password'; await app.submit();
   assert.equal(app.requests.length, 0); assert.equal(app.sockets.length, 0);
   assert.match(app.get('key-error').textContent, /HTTPS/);
+});
+
+test('a denied reconnect ends sharing without replacing the drawing editor', async () => {
+  const app = await presenter({ initialAccess: { authorized: true }, probeStatus: 403 });
+  const editor = app.get('editor'); app.click('start'); await app.settle();
+  await app.sockets[0].events.get('close')({ code: 1006 });
+  assert.equal(app.get('status').textContent, 'Sharing is off');
+  assert.match(app.get('notice').textContent, /Session unavailable/);
+  assert.equal(app.get('editor'), editor);
 });
