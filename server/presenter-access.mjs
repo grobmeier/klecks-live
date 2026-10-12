@@ -1,3 +1,4 @@
+import { secureOrigin } from '../public/protocol.js';
 import { randomBytes, createHash } from 'node:crypto';
 
 const hash = token => createHash('sha256').update(token).digest('hex');
@@ -9,7 +10,7 @@ export class PresenterAccess {
   #devices = new Map();
   constructor(config, origin) { this.config = config; this.origin = origin; }
   get secure() { return new URL(this.origin()).protocol === 'https:'; }
-  get supported() { return this.secure || ['localhost', '127.0.0.1', '[::1]'].includes(new URL(this.origin()).hostname); }
+  get supported() { return secureOrigin(this.origin()); }
   get cookieName() { return this.secure ? '__Host-live-draw-presenter' : 'live-draw-presenter'; }
   cookie(token, maxAge) {
     return `${this.cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict${this.secure ? '; Secure' : ''}${maxAge === undefined ? '' : `; Max-Age=${maxAge}`}`;

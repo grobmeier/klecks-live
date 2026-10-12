@@ -68,3 +68,10 @@ export function socketAuthentication(header) {
   if (auth.type !== 'auth' || auth.v !== VERSION || !['presenter', 'viewer'].includes(auth.role)) throw new Error('Invalid socket authentication');
   return auth;
 }
+
+export function secureOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
+  } catch { return false; }
+}

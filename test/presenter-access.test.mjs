@@ -43,9 +43,7 @@ test('unchecked remembering uses a browser-session cookie and loopback developme
   assert.match(access.header, /^live-draw-presenter=.*; Path=\/; HttpOnly; SameSite=Strict$/);
   assert.ok(access.status.expiresAt > Date.now() + 7 * 60 * 60 * 1000);
   assert.equal((await request(app, '/api/sessions', { method: 'POST', cookie: access.cookie })).status, 201);
-  const remote = await fixture(t, { publicOrigin: 'http://draw.example.org' });
-  const denied = await login(remote); assert.equal(denied.response.status, 403); assert.equal(denied.header, null);
-  assert.equal(denied.status.error, 'Presenter sign-in requires HTTPS');
+  assert.throws(() => createApplication({ publicOrigin: 'http://draw.example.org' }), /HTTPS/);
 });
 
 test('cookie creation and revocation enforce origin and method without changing valid access', async t => {

@@ -6,7 +6,7 @@ import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION, socketAuthentication } from '../public/protocol.js';
-import { configuration } from './config.mjs';
+import { configuration, validateTransport } from './config.mjs';
 import { clientAddressResolver } from './client-address.mjs';
 import { PresenterAccess } from './presenter-access.mjs';
 
@@ -20,6 +20,7 @@ const PUBLIC_FILES = new Set(['/login.html', '/login.js', '/viewer.html', '/view
 
 export function createApplication(overrides = {}, createServer = http.createServer) {
   const config = { ...configuration({}), ...overrides, editorAccess: overrides.editorAccess ?? (overrides.hostKey ? 'private' : 'public') };
+  validateTransport(config);
   if (!['private', 'public'].includes(config.editorAccess)) throw new Error('EDITOR_ACCESS must be private or public');
   if (config.editorAccess === 'private' && !config.hostKey) throw new Error('Private editor access requires HOST_ACCESS_KEY');
   const sessions = new Map();

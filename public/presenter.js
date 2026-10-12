@@ -1,5 +1,5 @@
 import { FramePublisher } from './capture.js';
-import { VERSION, socketProtocols } from './protocol.js';
+import { VERSION, socketProtocols, secureOrigin } from './protocol.js';
 const $ = id => document.getElementById(id);
 const frame = $('editor');
 let editorReady = frame.dataset.ready === 'true', session, socket, publisher, unsubscribe, reconnectTimer, reconnectDelay = 500, stopping = false, terminal = false, starting = false, forgetting = false, exporting = false, sequence = 0;
@@ -77,6 +77,7 @@ function finish(message) {
 }
 function connect() {
   if (!session || !editorReady || terminal) return;
+  if (!secureOrigin(location.origin)) { finish('Use HTTPS to share this drawing.'); return; }
   clearTimeout(reconnectTimer);
   state(stopping ? 'Stopping sharing…' : 'Connecting…');
   socket = new WebSocket(new URL('/socket', location.origin).href.replace(/^http/, 'ws'), socketProtocols({ role: 'presenter', id: session.id, token: session.presenterToken })); socket.binaryType = 'arraybuffer';
@@ -113,6 +114,7 @@ async function start(hostKey = '') {
   starting = true; buttons();
   $('key-error').hidden = true;
   try {
+    if (!secureOrigin(location.origin)) throw new Error('Use HTTPS to share this drawing.');
     if (hostKey) {
       const login = await fetch('/api/presenter-access', { method: 'POST', credentials: 'same-origin', headers: { 'X-Host-Key': hostKey.trim(), 'X-Remember-Device': String($('remember-device').checked) } });
       const result = await login.json();

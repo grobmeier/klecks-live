@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { socketProtocols } from '../public/protocol.js';
+import { socketProtocols, secureOrigin } from '../public/protocol.js';
 
 const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../public/presenter.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
 const session = { id: 'synthetic-session', presenterToken: 'synthetic-presenter', viewerToken: 'synthetic-viewer', expiresAt: Date.now() + 60000 };
 
-async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), getPSD = async () => new Blob(['synthetic PSD']), storageDenied = false, earlyEditorReady = false } = {}) {
+async function presenter({ response = () => ({ ok: true, status: 200, json: async () => ({ authorized: true }) }), creation = () => ({ ok: true, status: 201, json: async () => session }), initialAccess = { authorized: false }, forget = () => ({ ok: true }), getPSD = async () => new Blob(['synthetic PSD']), storageDenied = false, earlyEditorReady = false, origin = 'https://draw.example.org' } = {}) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
     value: '', checked: false, dataset: {}, style: {}, attributes: {}, hidden: false, disabled: false, open: false, textContent: '', events: new Map(),
     classList: { toggle() {} }, addEventListener(type, listener) { this.events.set(type, listener); },
@@ -39,7 +39,7 @@ async function presenter({ response = () => ({ ok: true, status: 200, json: asyn
   await runInNewContext(`(async () => { ${source}\n })()`, {
     document: { hidden: false, getElementById: id => elements.get(id), addEventListener(type, listener) { documentEvents.set(type, listener); } },
     window: { addEventListener(type, listener) { windowEvents.set(type, listener); } },
-    location: { origin: 'https://draw.example.org' }, WebSocket: Socket, socketProtocols, VERSION: 1,
+    location: { origin }, WebSocket: Socket, socketProtocols, secureOrigin, VERSION: 1,
     sessionStorage: { getItem: key => storage(() => saved.get(key) || null), setItem: (key, value) => storage(() => saved.set(key, value)), removeItem: key => storage(() => saved.delete(key)) },
     fetch: async (path, options) => {
       if (path === '/api/config') {
@@ -251,4 +251,11 @@ test('hidden controls keep sharing state and viewers current and restore access 
   assert.equal(app.get('compact-count').hidden, true);
   assert.equal(app.get('notice').hidden, false);
   assert.equal(app.sockets.length, 1);
+});
+
+test('remote HTTP presenting refuses password and session transmission', async () => {
+  const app = await presenter({ origin: 'http://draw.example.org' });
+  app.click('start'); app.get('host-key').value = 'synthetic-password'; await app.submit();
+  assert.equal(app.requests.length, 0); assert.equal(app.sockets.length, 0);
+  assert.match(app.get('key-error').textContent, /HTTPS/);
 });

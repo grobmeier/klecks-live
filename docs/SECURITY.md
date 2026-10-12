@@ -6,7 +6,10 @@ sessions, device credentials and the latest shared image in memory.
 ## Presenter access
 
 `HOST_ACCESS_KEY` is the operator-managed presenter password. Non-loopback
-binding requires an explicit origin and a password of at least 32 characters.
+binding requires an explicit HTTPS origin and a password of at least 32
+characters. Remote HTTP origins are rejected at startup, including behind a
+loopback proxy listener. Browser clients refuse to transmit passwords and
+session capabilities over remote HTTP.
 Private editor mode also requires a password and protects editor HTML, scripts
 and Klecks bundles before they are downloaded.
 

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
-import { socketProtocols } from '../public/protocol.js';
+import { socketProtocols, secureOrigin } from '../public/protocol.js';
 import { decodeFrame, encodeFrame, VERSION } from '../public/protocol.js';
 
 const html = await readFile(new URL('../public/viewer.html', import.meta.url), 'utf8');
@@ -10,7 +10,7 @@ const source = (await readFile(new URL('../public/viewer.js', import.meta.url), 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY7sAAAAASUVORK5CYII=', 'base64');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function viewer(t) {
+async function viewer(t, origin = 'https://draw.example.org') {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
     dataset: {}, hidden: id === 'drawing', textContent: '', events: new Map(),
     classList: { toggle() {} }, addEventListener(type, listener) { this.events.set(type, listener); },
@@ -30,15 +30,15 @@ async function viewer(t) {
   await runInNewContext(`(async () => { ${source}\n })()`, {
     document: { getElementById: id => elements.get(id) },
     window: { addEventListener(type, listener) { windowEvents.set(type, listener); } },
-    location: { origin: 'https://draw.example.org', pathname: '/view/fixture', hash: '#synthetic-viewer' },
+    location: { origin, pathname: '/view/fixture', hash: '#synthetic-viewer' },
     fetch: async () => ({ json: async () => ({ maxFrameBytes: 2048, maxEdge: 1600 }) }),
-    WebSocket: Socket, socketProtocols, Image: FrameImage, URL: FrameURL, Blob, decodeFrame, VERSION, setTimeout, clearTimeout,
+    WebSocket: Socket, socketProtocols, secureOrigin, Image: FrameImage, URL: FrameURL, Blob, decodeFrame, VERSION, setTimeout, clearTimeout,
   });
   t.after(() => windowEvents.get('pagehide')());
   const message = data => sockets[0].events.get('message')({ data: JSON.stringify(data) });
-  message({ type: 'ready', epoch: 'test', state: 'live' });
+  if (sockets.length) message({ type: 'ready', epoch: 'test', state: 'live' });
   return {
-    get: id => elements.get(id), completions, painted, revoked, message,
+    get: id => elements.get(id), sockets, completions, painted, revoked, message,
     frame: (seq, epoch = 'test') => sockets[0].events.get('message')({ data: encodeFrame({ epoch, seq, width: 1, height: 1, mime: 'image/png' }, png) }),
   };
 }
@@ -86,4 +86,10 @@ test('a new presenter epoch invalidates the old decode and displays only fresh p
   assert.equal(app.painted.length, 1);
   assert.equal(app.get('status').textContent, 'Live');
   assert.equal(app.revoked.length, 2);
+});
+
+test('remote HTTP viewers refuse to transmit their capability', async t => {
+  const app = await viewer(t, 'http://draw.example.org');
+  assert.equal(app.sockets.length, 0); assert.equal(app.get('drawing').hidden, true);
+  assert.match(app.get('status').textContent, /HTTPS/);
 });

@@ -85,7 +85,7 @@ node --env-file=.env server/index.mjs
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Listen interface; non-loopback binding requires an explicit origin and password |
 | `PORT` | `5055` | HTTP port; `0` selects an available port |
-| `PUBLIC_ORIGIN` | inferred on loopback | Exact external HTTP(S) origin; use HTTPS for network access |
+| `PUBLIC_ORIGIN` | inferred on loopback | Exact external origin; HTTPS required except on loopback |
 | `HOST_ACCESS_KEY` | empty on loopback | Presenter password; at least 32 characters for non-loopback binding |
 | `EDITOR_ACCESS` | `private` with a password, otherwise `public` | Require sign-in for editor downloads or allow local drawing without sign-in |
 | `TRUSTED_PROXY_ADDRESSES` | empty | Comma-separated exact proxy peer IPs allowed to supply `X-Real-IP` |
