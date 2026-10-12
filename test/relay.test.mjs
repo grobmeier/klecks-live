@@ -5,7 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { WebSocket } from 'ws';
 import { createApplication } from '../server/app.mjs';
 import { configuration } from '../server/config.mjs';
-import { encodeFrame, decodeFrame } from '../public/protocol.js';
+import { encodeFrame, decodeFrame, socketProtocols } from '../public/protocol.js';
 import https from 'node:https';
 import tls from 'node:tls';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
@@ -54,7 +54,7 @@ async function createSession(app, key = '') {
   return { response, session: await response.json() };
 }
 async function connection(app, auth) {
-  const ws = new WebSocket(app.origin.replace(/^http/, 'ws') + '/socket', { headers: { Origin: app.origin } });
+  const ws = new WebSocket(app.origin.replace(/^http/, 'ws') + '/socket', auth ? socketProtocols(auth) : [], { headers: { Origin: app.origin } });
   const messages = [], waiters = [];
   ws.on('message', (data, binary) => {
     const message = binary ? { binary: true, data } : JSON.parse(data.toString());
@@ -134,10 +134,9 @@ test('viewer cannot publish or stop a session', async t => {
 test('wrong capability and duplicate presenter are rejected', async t => {
   const app = await fixture(t); const { session } = await createSession(app);
   const first = await connection(app, auth(session, 'presenter')); await first.next(m => m.type === 'ready');
-  const duplicate = await connection(app); const duplicateClosed = once(duplicate.ws, 'close');
+  const duplicate = await connection(app, auth(session, 'presenter')); const duplicateClosed = once(duplicate.ws, 'close');
   duplicate.ws.send(JSON.stringify({ type: 'auth', v: 1, ...auth(session, 'presenter') })); assert.equal((await duplicateClosed)[0], 1008);
-  const wrong = await connection(app); const wrongClosed = once(wrong.ws, 'close');
-  wrong.ws.send(JSON.stringify({ type: 'auth', v: 1, ...auth(session, 'presenter'), token: session.viewerToken })); assert.equal((await wrongClosed)[0], 1008);
+  await assert.rejects(() => connection(app, { ...auth(session, 'presenter'), token: session.viewerToken }), /403/);
 });
 test('viewer capacity is enforced and freed on disconnect', async t => {
   const app = await fixture(t, { maxViewers: 1 }); const { session } = await createSession(app);
@@ -171,7 +170,7 @@ test('explicit stop clears pixels, closes viewers and invalidates capabilities',
   presenter.ws.send(frame(ready.epoch)); await viewer.next(m => m.binary);
   const retained = app.sessions.get(session.id); presenter.ws.send(JSON.stringify({ type: 'stop' }));
   await viewer.next(m => m.type === 'ended'); assert.equal(retained.frame, undefined); assert.equal(app.sessions.size, 0);
-  const late = await connection(app); const closed = once(late.ws, 'close'); late.ws.send(JSON.stringify({ type: 'auth', v: 1, ...auth(session, 'viewer') })); assert.equal((await closed)[0], 1008);
+  await assert.rejects(() => connection(app, auth(session, 'viewer')), /403/);
 });
 test('pause and immediate resume require a fresh, monotonic frame', async t => {
   const app = await fixture(t, { fps: 1 }); const { session } = await createSession(app);
@@ -202,14 +201,13 @@ test('oversized payload and unauthenticated connections are closed', async t => 
   const app = await fixture(t, { maxFrameBytes: 1024, authTimeoutMs: 50 }); const { session } = await createSession(app);
   const presenter = await connection(app, auth(session, 'presenter')); await presenter.next(m => m.type === 'ready');
   const closed = once(presenter.ws, 'close'); presenter.ws.send(Buffer.alloc(4096)); assert.equal((await closed)[0], 1009);
-  const stranger = await connection(app); assert.equal((await once(stranger.ws, 'close'))[0], 1008);
+  await assert.rejects(() => connection(app), /403/);
 });
 test('server restart invalidates the old session', async t => {
   const first = createApplication({ port: 0 }); await first.listen(); const { session } = await createSession(first);
   await first.close();
-  const replacement = await fixture(t); const viewer = await connection(replacement);
-  const closed = once(viewer.ws, 'close'); viewer.ws.send(JSON.stringify({ type: 'auth', v: 1, ...auth(session, 'viewer') }));
-  assert.equal((await closed)[0], 1008);
+  const replacement = await fixture(t);
+  await assert.rejects(() => connection(replacement, auth(session, 'viewer')), /403/);
 });
 test('session lifetime and presenter grace expire independently of viewers', async t => {
   const app = await fixture(t, { reconnectGraceMs: 70 }); const { session } = await createSession(app);

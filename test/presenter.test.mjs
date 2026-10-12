@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
+import { socketProtocols } from '../public/protocol.js';
 
 const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
 const source = (await readFile(new URL('../public/presenter.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
@@ -38,7 +39,7 @@ async function presenter({ response = () => ({ ok: true, status: 200, json: asyn
   await runInNewContext(`(async () => { ${source}\n })()`, {
     document: { hidden: false, getElementById: id => elements.get(id), addEventListener(type, listener) { documentEvents.set(type, listener); } },
     window: { addEventListener(type, listener) { windowEvents.set(type, listener); } },
-    location: { origin: 'https://draw.example.org' }, WebSocket: Socket, VERSION: 1,
+    location: { origin: 'https://draw.example.org' }, WebSocket: Socket, socketProtocols, VERSION: 1,
     sessionStorage: { getItem: key => storage(() => saved.get(key) || null), setItem: (key, value) => storage(() => saved.set(key, value)), removeItem: key => storage(() => saved.delete(key)) },
     fetch: async (path, options) => {
       if (path === '/api/config') {

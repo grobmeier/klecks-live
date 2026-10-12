@@ -1,5 +1,5 @@
 import { FramePublisher } from './capture.js';
-import { VERSION } from './protocol.js';
+import { VERSION, socketProtocols } from './protocol.js';
 const $ = id => document.getElementById(id);
 const frame = $('editor');
 let editorReady = frame.dataset.ready === 'true', session, socket, publisher, unsubscribe, reconnectTimer, reconnectDelay = 500, stopping = false, terminal = false, starting = false, forgetting = false, exporting = false, sequence = 0;
@@ -79,7 +79,7 @@ function connect() {
   if (!session || !editorReady || terminal) return;
   clearTimeout(reconnectTimer);
   state(stopping ? 'Stopping sharing…' : 'Connecting…');
-  socket = new WebSocket(new URL('/socket', location.origin).href.replace(/^http/, 'ws')); socket.binaryType = 'arraybuffer';
+  socket = new WebSocket(new URL('/socket', location.origin).href.replace(/^http/, 'ws'), socketProtocols({ role: 'presenter', id: session.id, token: session.presenterToken })); socket.binaryType = 'arraybuffer';
   const current = socket;
   current.addEventListener('open', () => current.send(JSON.stringify({ type: 'auth', v: VERSION, role: 'presenter', id: session.id, token: session.presenterToken })));
   current.addEventListener('message', event => {

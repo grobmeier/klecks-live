@@ -30,7 +30,11 @@ in a browser continues to run locally after access is revoked.
 Each session has separate presenter and viewer capabilities. Presenter control
 stays in the presenter's `sessionStorage`; the viewer link carries only its
 viewer capability in the URL fragment. Fragments are absent from HTTP request
-URLs. WebSocket authentication carries the capability after connection.
+URLs. WebSocket upgrades carry the capability in `Sec-WebSocket-Protocol`,
+which must be excluded from proxy logs. The relay validates it before accepting
+the connection and binds the first authentication message to the same session
+and role. Viewer sockets accept at most 2 KiB per incoming message; only valid
+presenter capabilities unlock the frame-sized receive budget.
 
 A viewer capability grants read-only access to that session. Anyone holding
 the link can watch until stop or expiry; viewers do not have named accounts.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';
-import { encodeFrame, decodeFrame } from '../public/protocol.js';
+import { encodeFrame, decodeFrame, socketProtocols } from '../public/protocol.js';
 
 const origin = process.env.PUBLIC_ORIGIN;
 if (!origin || new URL(origin).origin !== origin || !origin.startsWith('https://')) throw new Error('An exact HTTPS PUBLIC_ORIGIN is required');
@@ -15,7 +15,7 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 const auth = (session, role) => ({ type: 'auth', v: 1, id: session.id, role, token: session[role === 'presenter' ? 'presenterToken' : 'viewerToken'] });
 
 async function connect(credentials, suppliedOrigin = origin) {
-  const ws = new WebSocket(origin.replace(/^https:/, 'wss:') + '/socket', { headers: { Origin: suppliedOrigin } });
+  const ws = new WebSocket(origin.replace(/^https:/, 'wss:') + '/socket', socketProtocols(credentials || {}), { headers: { Origin: suppliedOrigin } });
   sockets.add(ws); ws.on('error', () => {});
   const messages = [], waiters = [];
   ws.on('message', (bytes, binary) => {

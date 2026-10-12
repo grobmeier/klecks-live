@@ -1,4 +1,4 @@
-import { decodeFrame, VERSION } from './protocol.js';
+import { decodeFrame, VERSION, socketProtocols } from './protocol.js';
 const canvas = document.getElementById('drawing'), context = canvas.getContext('2d');
 const status = document.getElementById('status'), message = document.getElementById('message'), indicator = document.getElementById('indicator');
 const id = location.pathname.split('/').pop(), token = location.hash.slice(1);
@@ -32,7 +32,7 @@ async function render() {
 function connect() {
   if (terminal) return;
   generation++; pending = undefined; hasFreshFrame = false; lastSequence = 0;
-  socket = new WebSocket(new URL('/socket', location.origin).href.replace(/^http/, 'ws')); socket.binaryType = 'arraybuffer';
+  socket = new WebSocket(new URL('/socket', location.origin).href.replace(/^http/, 'ws'), socketProtocols({ role: 'viewer', id, token })); socket.binaryType = 'arraybuffer';
   const current = socket;
   current.addEventListener('open', () => current.send(JSON.stringify({ type: 'auth', v: VERSION, role: 'viewer', id, token })));
   current.addEventListener('message', event => {

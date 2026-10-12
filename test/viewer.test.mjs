@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
+import { socketProtocols } from '../public/protocol.js';
 import { decodeFrame, encodeFrame, VERSION } from '../public/protocol.js';
 
 const html = await readFile(new URL('../public/viewer.html', import.meta.url), 'utf8');
@@ -31,7 +32,7 @@ async function viewer(t) {
     window: { addEventListener(type, listener) { windowEvents.set(type, listener); } },
     location: { origin: 'https://draw.example.org', pathname: '/view/fixture', hash: '#synthetic-viewer' },
     fetch: async () => ({ json: async () => ({ maxFrameBytes: 2048, maxEdge: 1600 }) }),
-    WebSocket: Socket, Image: FrameImage, URL: FrameURL, Blob, decodeFrame, VERSION, setTimeout, clearTimeout,
+    WebSocket: Socket, socketProtocols, Image: FrameImage, URL: FrameURL, Blob, decodeFrame, VERSION, setTimeout, clearTimeout,
   });
   t.after(() => windowEvents.get('pagehide')());
   const message = data => sockets[0].events.get('message')({ data: JSON.stringify(data) });

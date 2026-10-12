@@ -6,7 +6,7 @@ import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { WebSocket } from 'ws';
-import { encodeFrame, decodeFrame } from '../public/protocol.js';
+import { encodeFrame, decodeFrame, socketProtocols } from '../public/protocol.js';
 
 const execute = promisify(execFile);
 const image = process.argv[2] || 'klecks-live:local';
@@ -31,7 +31,7 @@ async function closedSocket(ws) {
 }
 
 async function connect(credentials) {
-  const ws = new WebSocket(origin.replace(/^http/, 'ws') + '/socket', { headers: { Origin: origin } });
+  const ws = new WebSocket(origin.replace(/^http/, 'ws') + '/socket', socketProtocols(credentials || {}), { headers: { Origin: origin } });
   sockets.add(ws);
   const messages = [], waiters = [];
   ws.on('error', () => {});

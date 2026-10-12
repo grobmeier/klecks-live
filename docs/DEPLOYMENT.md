@@ -41,8 +41,9 @@ Nginx, set the upgrade headers, disable buffering for `/socket`, and use an idle
 timeout longer than the relay's 15-second heartbeat.
 
 Keep the application port on host loopback. Expose only the proxy's HTTP/HTTPS
-ports. Exclude password headers, cookies, request bodies and socket
-authentication messages from logs. See [Security](SECURITY.md) for the access
+ports. Exclude `X-Host-Key`, `Cookie`, `Authorization`,
+`Sec-WebSocket-Protocol`, request bodies and socket authentication messages from
+logs. See [Security](SECURITY.md) for the access
 model and runtime restrictions.
 
 For local Mac-to-iPad access without a public domain, use the

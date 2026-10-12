@@ -5,7 +5,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
-import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION } from '../public/protocol.js';
+import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION, socketAuthentication } from '../public/protocol.js';
 import { configuration } from './config.mjs';
 import { PresenterAccess } from './presenter-access.mjs';
 
@@ -26,7 +26,10 @@ export function createApplication(overrides = {}, createServer = http.createServ
   let origin = config.publicOrigin;
   const presenterAccess = new PresenterAccess(config, () => origin);
   const root = resolve(fileURLToPath(config.staticDir));
-  const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxFrameBytes + HEADER_LIMIT + 4, perMessageDeflate: false });
+  const options = { noServer: true, perMessageDeflate: false, handleProtocols: () => `live-draw.v${VERSION}` };
+  const wss = new WebSocketServer({ ...options, maxPayload: config.maxFrameBytes + HEADER_LIMIT + 4 });
+  const viewerWss = new WebSocketServer({ ...options, maxPayload: 2048 });
+  const connections = new Set();
   const hostHash = digest(config.hostKey);
   const headers = {
     'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
@@ -126,24 +129,33 @@ export function createApplication(overrides = {}, createServer = http.createServ
     // Rejected upgrades still own a raw HTTP/TLS socket. A peer can reset it
     // before WebSocketServer installs its handlers; this must not crash Node.
     socket.on('error', () => {});
-    if (req.url !== '/socket' || req.headers.origin !== origin || limited(req) || wss.clients.size >= config.maxSessions * (config.maxViewers + 1) + 10) {
+    if (req.url !== '/socket' || req.headers.origin !== origin || limited(req) || connections.size >= config.maxSessions * (config.maxViewers + 1) + 10) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
     }
-    wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws));
+    let authentication;
+    try {
+      authentication = socketAuthentication(req.headers['sec-websocket-protocol']);
+      expire();
+      const candidate = sessions.get(authentication.id);
+      if (!candidate || !matches(authentication.token, authentication.role === 'presenter' ? candidate.presenterHash : candidate.viewerHash)) throw new Error('Session unavailable');
+    } catch { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+    const selected = authentication.role === 'presenter' ? wss : viewerWss;
+    selected.handleUpgrade(req, socket, head, ws => selected.emit('connection', ws, authentication));
   });
-  wss.on('connection', socket => {
+  const connected = (socket, authentication) => {
+    connections.add(socket);
     let session, role;
     socket.alive = true;
     socket.on('pong', () => { socket.alive = true; });
     socket.on('error', () => {});
-    const timeout = setTimeout(() => socket.close(1008, 'Authentication required'), config.authTimeoutMs);
+    const timeout = setTimeout(() => socket.terminate(), config.authTimeoutMs);
     timeout.unref();
     socket.on('message', (data, binary) => {
       try {
         if (!session) {
           if (binary || data.length > 2048) throw new Error('Invalid authentication');
           const message = JSON.parse(data.toString());
-          if (message.type !== 'auth' || message.v !== VERSION || !['presenter', 'viewer'].includes(message.role)) throw new Error('Invalid authentication');
+          if (message.type !== 'auth' || message.v !== VERSION || message.id !== authentication.id || message.role !== authentication.role) throw new Error('Invalid authentication');
           expire();
           const candidate = sessions.get(message.id);
           if (!candidate || !matches(message.token, message.role === 'presenter' ? candidate.presenterHash : candidate.viewerHash)) throw new Error('Session unavailable');
@@ -187,16 +199,18 @@ export function createApplication(overrides = {}, createServer = http.createServ
       } catch { socket.close(1008, 'Connection rejected'); }
     });
     socket.on('close', () => {
+      connections.delete(socket);
       clearTimeout(timeout);
       if (!session || !sessions.has(session.id)) return;
       if (role === 'presenter' && session.presenter === socket) { session.presenter = undefined; session.state = 'paused'; session.disconnectedAt = Date.now(); }
       if (role === 'viewer') session.viewers.delete(socket);
       broadcastStatus(session);
     });
-  });
+  };
+  wss.on('connection', connected); viewerWss.on('connection', connected);
   const sweep = setInterval(expire, 50); sweep.unref();
   const heartbeat = setInterval(() => {
-    for (const socket of wss.clients) {
+    for (const socket of connections) {
       if (!socket.alive) { socket.terminate(); continue; }
       socket.alive = false; socket.ping();
     }
@@ -215,8 +229,8 @@ export function createApplication(overrides = {}, createServer = http.createServ
       clearInterval(sweep); clearInterval(heartbeat);
       presenterAccess.clear();
       for (const session of [...sessions.values()]) end(session, 'server-stopped');
-      for (const socket of wss.clients) socket.terminate();
-      await new Promise(resolveClose => wss.close(resolveClose));
+      for (const socket of connections) socket.terminate();
+      await Promise.all([wss, viewerWss].map(relay => new Promise(resolveClose => relay.close(resolveClose))));
       await new Promise(resolveClose => server.close(resolveClose));
     },
   };
