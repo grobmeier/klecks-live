@@ -40,7 +40,7 @@ function connect() {
     if (current !== socket || terminal) return;
     if (typeof event.data !== 'string') { pending = event.data; void render(); return; }
     const data = JSON.parse(event.data);
-    if (data.type === 'ended') { terminal = true; setState('Session ended', 'The presenter has ended sharing or the session has expired.', false, true); return; }
+    if (data.type === 'ended') { terminal = true; setState('Session ended', 'This live session has ended.', false, true); return; }
     if (data.type === 'unavailable') { terminal = true; setState('Capacity reached', 'This session has reached its viewer limit.', false, true); return; }
     if (['ready', 'status'].includes(data.type)) {
       relayState = data.state;

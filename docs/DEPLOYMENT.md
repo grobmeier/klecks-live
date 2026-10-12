@@ -92,6 +92,7 @@ node --env-file=.env server/index.mjs
 | `MEMORY_BUDGET_BYTES` | `268435456` | Declared process memory budget; cannot exceed a detected OS/container limit |
 | `MAX_RETAINED_FRAME_BYTES` | eighth of memory budget (`33554432`) | Aggregate retained frames across all sessions |
 | `MAX_TOTAL_QUEUED_BYTES` | eighth of memory budget (`33554432`) | Aggregate unique outgoing payload buffers |
+| `MAX_INGRESS_BYTES_PER_SECOND` | quarter of memory budget (`67108864`) | Aggregate presenter ingress across all sessions |
 | `MAX_SESSIONS` | `10` | Simultaneous sessions, range 1–100 |
 | `MAX_VIEWERS` | `25` | Viewers per session, range 1–100 |
 | `FRAME_RATE` | `10` | Maximum updates per second, range 1–30 |
@@ -103,7 +104,7 @@ node --env-file=.env server/index.mjs
 Compose sets `HOST=0.0.0.0` inside the container, `PORT=5055`, and passes
 `PUBLIC_ORIGIN`, `HOST_ACCESS_KEY`, `EDITOR_ACCESS` and
 `TRUSTED_PROXY_ADDRESSES`, `MAX_RETAINED_FRAME_BYTES` and
-`MAX_TOTAL_QUEUED_BYTES` from `.env`. It fixes `MEMORY_BUDGET_BYTES` at 256 MiB
+`MAX_TOTAL_QUEUED_BYTES` and `MAX_INGRESS_BYTES_PER_SECOND` from `.env`. It fixes `MEMORY_BUDGET_BYTES` at 256 MiB
 to match its container limit. Other settings
 must be added to the service's environment. For example, create
 `compose.override.yaml` for smoother updates and a smaller frame budget:
@@ -135,6 +136,10 @@ without a bound.
 62.5 ms. Encoding counts toward that interval; the publisher keeps one active
 encoder and the newest pending view rather than building a backlog. Viewers
 paint completed frames and then decode their newest pending frame.
+
+Incoming frames also pass per-presenter message/byte budgets and an aggregate
+byte budget before parsing. Small scheduling bursts are allowed; sustained
+excess ends only the abusive session and invalidates its capabilities.
 
 `MAX_IMAGE_EDGE` controls transmitted detail. The viewer fits that image to its
 window while preserving the aspect ratio; fullscreen increases available space

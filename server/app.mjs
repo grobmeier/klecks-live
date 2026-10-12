@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION, socketAuthentication } from '../public/protocol.js';
 import { configuration, validateTransport, validateMediaBudget } from './config.mjs';
+import { IngressBudget } from './ingress.mjs';
 import { clientAddressResolver } from './client-address.mjs';
 import { PresenterAccess } from './presenter-access.mjs';
 
@@ -35,6 +36,8 @@ export function createApplication(overrides = {}, createServer = http.createServ
   const viewerWss = new WebSocketServer({ ...options, maxPayload: 2048 });
   const connections = new Set();
   const pendingPresenters = new Set();
+  const maximumFrame = config.maxFrameBytes + HEADER_LIMIT + 4;
+  const ingress = new IngressBudget(config.maxIngressBytesPerSecond, Math.max(maximumFrame, config.maxIngressBytesPerSecond));
   const queuedMessages = new Map();
   let retainedBytes = 0, queuedBytes = 0;
   const clearFrame = session => { retainedBytes -= session.frame?.length || 0; session.frame = undefined; };
@@ -179,12 +182,15 @@ export function createApplication(overrides = {}, createServer = http.createServ
     connections.add(socket);
     socket.pendingSends = new Set();
     let session, role;
+    const messages = new IngressBudget(config.fps * 1.25, 4);
+    const bytes = new IngressBudget(maximumFrame * config.fps * 1.25, maximumFrame * 4);
     socket.alive = true;
     socket.on('pong', () => { socket.alive = true; });
     socket.on('error', () => {});
     const timeout = setTimeout(() => socket.terminate(), config.authTimeoutMs);
     timeout.unref();
     socket.on('message', (data, binary) => {
+      if (socket.readyState !== WebSocket.OPEN) return;
       try {
         if (!session) {
           if (binary || data.length > 2048) throw new Error('Invalid authentication');
@@ -211,14 +217,15 @@ export function createApplication(overrides = {}, createServer = http.createServ
         if (role !== 'presenter' || session.presenter !== socket) throw new Error('Viewer is read-only');
         if (Date.now() >= session.expiresAt) { end(session, 'expired'); return; }
         if (binary) {
-          const { header, image } = decodeFrame(data, config.maxFrameBytes, config.maxImageEdge);
-          const dimensions = imageDimensions(image, header.mime);
-          if (dimensions.width !== header.width || dimensions.height !== header.height || header.epoch !== session.epoch || header.seq <= session.seq) throw new Error('Invalid frame');
-          // A two-frame burst tolerates scheduling jitter; the refill bounds the sustained rate.
+          if (!messages.take(1) || !bytes.take(data.length) || !ingress.take(data.length)) { end(session, 'abuse'); socket.terminate(); return; }
+          // Charge ingress and publication before parsing; tolerate a two-frame burst.
           const now = Date.now();
           session.frameTokens = Math.min(2, session.frameTokens + (now - session.lastFrameAt) * config.fps / 1000);
           session.lastFrameAt = now;
           if (session.frameTokens < 1) return;
+          const { header, image } = decodeFrame(data, config.maxFrameBytes, config.maxImageEdge);
+          const dimensions = imageDimensions(image, header.mime);
+          if (dimensions.width !== header.width || dimensions.height !== header.height || header.epoch !== session.epoch || header.seq <= session.seq) throw new Error('Invalid frame');
           if (retainedBytes - (session.frame?.length || 0) + data.length > config.maxRetainedFrameBytes) throw new Error('Retained frame budget exceeded');
           retainedBytes += data.length - (session.frame?.length || 0);
           session.frameTokens--; session.seq = header.seq; session.frame = Buffer.from(data);

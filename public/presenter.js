@@ -86,7 +86,7 @@ function connect() {
   current.addEventListener('message', event => {
     if (current !== socket || typeof event.data !== 'string') return;
     const message = JSON.parse(event.data);
-    if (message.type === 'ended') { finish(message.reason === 'expired' ? 'The session expired. Start another when you are ready.' : ''); return; }
+    if (message.type === 'ended') { finish(message.reason === 'expired' ? 'The session expired. Start another when you are ready.' : message.reason === 'abuse' ? 'Sharing stopped because drawing updates exceeded the server limits.' : ''); return; }
     if (message.type === 'ready') {
       reconnectDelay = 500;
       disconnectCapture(); sequence = 0;

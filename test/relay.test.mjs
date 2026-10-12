@@ -188,13 +188,14 @@ test('absolute lifetime expires even with an active presenter', async t => {
   const presenter = await connection(app, auth(session, 'presenter')); await presenter.next(m => m.type === 'ready');
   assert.equal((await presenter.next(m => m.type === 'ended')).reason, 'expired'); assert.equal(app.sessions.size, 0);
 });
-test('a burst is bounded and sustained excess frames cannot replace the retained view', async t => {
+test('sustained excess frames end the abusive session and discard retained pixels', async t => {
   const app = await fixture(t, { fps: 1 }); const { session } = await createSession(app);
   const presenter = await connection(app, auth(session, 'presenter')); const ready = await presenter.next(m => m.type === 'ready');
   const viewer = await connection(app, auth(session, 'viewer')); await viewer.next(m => m.type === 'ready');
   for (let seq = 1; seq <= 100; seq++) presenter.ws.send(frame(ready.epoch, seq));
-  await viewer.next(m => m.binary); await delay(30);
-  assert.equal(app.sessions.get(session.id).seq, 2);
+  await viewer.next(m => m.binary);
+  assert.equal((await viewer.next(m => m.type === 'ended')).reason, 'abuse');
+  assert.equal(app.sessions.has(session.id), false);
 });
 test('oversized payload and unauthenticated connections are closed', async t => {
   const app = await fixture(t, { maxFrameBytes: 1024, authTimeoutMs: 50 }); const { session } = await createSession(app);

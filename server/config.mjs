@@ -15,6 +15,7 @@ export function configuration(env = process.env) {
   const memoryBudgetBytes = integer(env, 'MEMORY_BUDGET_BYTES', Math.min(268435456, process.constrainedMemory() || 268435456), 67108864, 2147483648);
   const config = {
     memoryBudgetBytes,
+    maxIngressBytesPerSecond: integer(env, 'MAX_INGRESS_BYTES_PER_SECOND', Math.floor(memoryBudgetBytes / 4), 1024, 1073741824),
     maxRetainedFrameBytes: integer(env, 'MAX_RETAINED_FRAME_BYTES', Math.floor(memoryBudgetBytes / 8), 1024, 536870912),
     maxTotalQueuedBytes: integer(env, 'MAX_TOTAL_QUEUED_BYTES', Math.floor(memoryBudgetBytes / 8), 1024, 536870912),
     host, publicOrigin, hostKey, editorAccess,
