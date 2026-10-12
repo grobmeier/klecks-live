@@ -31,7 +31,9 @@ to that host and configure an HTTPS proxy. With Caddy:
 
 ```caddyfile
 draw.example.org {
-    reverse_proxy 127.0.0.1:5055
+    reverse_proxy 127.0.0.1:5055 {
+        header_up X-Real-IP {remote_host}
+    }
 }
 ```
 
@@ -86,6 +88,7 @@ node --env-file=.env server/index.mjs
 | `PUBLIC_ORIGIN` | inferred on loopback | Exact external HTTP(S) origin; use HTTPS for network access |
 | `HOST_ACCESS_KEY` | empty on loopback | Presenter password; at least 32 characters for non-loopback binding |
 | `EDITOR_ACCESS` | `private` with a password, otherwise `public` | Require sign-in for editor downloads or allow local drawing without sign-in |
+| `TRUSTED_PROXY_ADDRESSES` | empty | Comma-separated exact proxy peer IPs allowed to supply `X-Real-IP` |
 | `MAX_SESSIONS` | `10` | Simultaneous sessions, range 1–100 |
 | `MAX_VIEWERS` | `25` | Viewers per session, range 1–100 |
 | `FRAME_RATE` | `10` | Maximum updates per second, range 1–30 |
@@ -95,7 +98,8 @@ node --env-file=.env server/index.mjs
 | `RECONNECT_GRACE_MS` | `120000` | Presenter recovery window in milliseconds, maximum 10 minutes |
 
 Compose sets `HOST=0.0.0.0` inside the container, `PORT=5055`, and passes
-`PUBLIC_ORIGIN`, `HOST_ACCESS_KEY` and `EDITOR_ACCESS` from `.env`. Other settings
+`PUBLIC_ORIGIN`, `HOST_ACCESS_KEY`, `EDITOR_ACCESS` and
+`TRUSTED_PROXY_ADDRESSES` from `.env`. Other settings
 must be added to the service's environment. For example, create
 `compose.override.yaml` for smoother updates and a smaller frame budget:
 
@@ -137,9 +141,19 @@ to 64.
 
 `GET /health` reports process availability. The relay uses a five-second socket
 authentication deadline, a 3 MiB outgoing queue limit and 60 session/sign-in
-attempts per minute per remote address. Behind a proxy, that address budget is
-shared by the proxy's clients. Additional per-client limits belong at the proxy;
-the relay does not trust arbitrary forwarded IP headers.
+attempts per minute per client in separate buckets for password failures,
+successful sign-ins, session creation and authenticated WebSocket upgrades.
+Failed anonymous requests do not consume authenticated session or reconnect
+budgets.
+
+For a reverse proxy, set `TRUSTED_PROXY_ADDRESSES` to the exact peer IP addresses
+seen by the app and configure the proxy to overwrite `X-Real-IP` with its socket
+peer address. Caddy's example above does this using `{remote_host}`; it does not
+trust a visitor's forwarded headers. A host proxy reaching Docker often appears
+as the container network's gateway, rather than host loopback. Identify that
+address from your network configuration. Never allow every private address or
+use an unrestricted trust setting. Missing or malformed metadata from a trusted
+proxy is rejected. Forwarded headers from other peers are ignored.
 
 Sessions and the latest shared image live in memory. Stop, expiry, restart and
 rollback discard them. Export locally before closing or reloading the presenter.

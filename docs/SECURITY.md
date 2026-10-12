@@ -53,9 +53,13 @@ connections, queued output and authentication attempts. Sequence numbers and
 connection epochs prevent stale frames replacing newer views. Slow viewers
 are disconnected when their outgoing queue exceeds its budget.
 
-The address-based request limit applies to the proxy address behind a reverse
-proxy. Configure per-client rate limits at the proxy as needed and keep the
-application port on host loopback. Application budgets complement host and
+Client limits use the socket peer address by default. Only exact configured
+`TRUSTED_PROXY_ADDRESSES` may supply a single valid `X-Real-IP`; the proxy must
+overwrite that header from its own peer address. Other forwarded headers are
+ignored. Password failures, sign-ins, session creation and authenticated socket
+upgrades have independent budgets. Anonymous failures cannot exhaust an
+authorized client's session or reconnect budget. Keep the application port on
+host loopback. Application budgets complement host and
 network controls; they do not provide volumetric attack protection.
 
 The supplied container runs as UID/GID 1000 without a shell, npm or build tools.

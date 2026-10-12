@@ -107,10 +107,11 @@ test('forged, duplicated and viewer capabilities cannot act as device logins', a
   ]) assert.equal((await request(app, '/api/sessions', { method: 'POST', cookie })).status, 403);
 });
 
-test('presenter password attempts share the bounded request budget', async t => {
+test('failed presenter passwords are bounded without consuming valid sign-in access', async t => {
   const app = await fixture(t);
   for (let count = 0; count < 60; count++) assert.equal((await login(app, { password: 'wrong' })).response.status, 403);
-  assert.equal((await login(app)).response.status, 429);
+  assert.equal((await login(app, { password: 'wrong' })).response.status, 429);
+  assert.equal((await login(app)).response.status, 200);
 });
 
 test('keyless loopback needs no presenter login and never issues a device cookie', async t => {

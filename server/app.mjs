@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION, socketAuthentication } from '../public/protocol.js';
 import { configuration } from './config.mjs';
+import { clientAddressResolver } from './client-address.mjs';
 import { PresenterAccess } from './presenter-access.mjs';
 
 const digest = value => createHash('sha256').update(value).digest();
@@ -23,6 +24,7 @@ export function createApplication(overrides = {}, createServer = http.createServ
   if (config.editorAccess === 'private' && !config.hostKey) throw new Error('Private editor access requires HOST_ACCESS_KEY');
   const sessions = new Map();
   const attempts = new Map();
+  const clientAddress = clientAddressResolver(config.trustedProxyAddresses);
   let origin = config.publicOrigin;
   const presenterAccess = new PresenterAccess(config, () => origin);
   const root = resolve(fileURLToPath(config.staticDir));
@@ -52,12 +54,14 @@ export function createApplication(overrides = {}, createServer = http.createServ
     }
     session.viewers.clear(); session.presenter = undefined;
   };
-  const limited = req => {
-    const key = req.socket.remoteAddress;
+  const limited = (req, category) => {
+    const key = clientAddress(req);
+    let bucket = attempts.get(category);
+    if (!bucket) { bucket = new Map(); attempts.set(category, bucket); }
     const now = Date.now();
-    let entry = attempts.get(key);
-    if (!entry && attempts.size >= 4096) return true;
-    if (!entry || entry.until < now) { entry = { count: 0, until: now + 60000 }; attempts.set(key, entry); }
+    let entry = bucket.get(key);
+    if (!entry && bucket.size >= 4096) return true;
+    if (!entry || entry.until < now) { entry = { count: 0, until: now + 60000 }; bucket.set(key, entry); }
     return ++entry.count > 60;
   };
   const expire = () => {
@@ -65,7 +69,7 @@ export function createApplication(overrides = {}, createServer = http.createServ
     for (const session of sessions.values()) {
       if (now >= session.expiresAt || (!session.presenter && now - session.disconnectedAt >= config.reconnectGraceMs)) end(session, 'expired');
     }
-    for (const [key, entry] of attempts) if (entry.until < now) attempts.delete(key);
+    for (const bucket of attempts.values()) for (const [key, entry] of bucket) if (entry.until < now) bucket.delete(key);
     presenterAccess.expire();
   };
   const server = createServer(async (req, res) => {
@@ -77,11 +81,11 @@ export function createApplication(overrides = {}, createServer = http.createServ
         if (!['POST', 'DELETE'].includes(req.method)) return json(res, 405, { error: 'Method not allowed' });
         req.resume();
         if (req.headers.origin !== origin) return json(res, 403, { error: 'Origin not allowed' });
-        if (limited(req)) return json(res, 429, { error: 'Too many attempts' });
         if (req.method === 'DELETE') return json(res, 200, { authorized: !config.hostKey }, { 'Set-Cookie': presenterAccess.forget(req) });
         if (!config.hostKey) return json(res, 200, presenterAccess.status(req));
         if (!presenterAccess.supported) return json(res, 403, { error: 'Presenter sign-in requires HTTPS' });
-        if (!matches(req.headers['x-host-key'], hostHash)) return json(res, 403, { error: 'Host access key required' });
+        if (!matches(req.headers['x-host-key'], hostHash)) return json(res, limited(req, 'password-failures') ? 429 : 403, { error: 'Host access key required' });
+        if (limited(req, 'sign-in')) return json(res, 429, { error: 'Too many attempts' });
         const grant = presenterAccess.grant(req, req.headers['x-remember-device'] === 'true');
         if (!grant) return json(res, 503, { error: 'Presenter device limit reached. Try again later or ask the server operator.' });
         return json(res, 200, grant.status, { 'Set-Cookie': grant.cookie });
@@ -89,8 +93,8 @@ export function createApplication(overrides = {}, createServer = http.createServ
       if (req.url === '/api/sessions' && req.method === 'POST') {
         req.resume();
         if (req.headers.origin !== origin) return json(res, 403, { error: 'Origin not allowed' });
-        if (limited(req)) return json(res, 429, { error: 'Too many attempts' });
-        if (config.hostKey && !presenterAccess.status(req).authorized && !matches(req.headers['x-host-key'], hostHash)) return json(res, 403, { error: 'Host access key required' });
+        if (config.hostKey && !presenterAccess.status(req).authorized && !matches(req.headers['x-host-key'], hostHash)) return json(res, limited(req, 'password-failures') ? 429 : 403, { error: 'Host access key required' });
+        if (limited(req, 'sessions')) return json(res, 429, { error: 'Too many attempts' });
         expire();
         if (sessions.size >= config.maxSessions) return json(res, 503, { error: 'Session limit reached' });
         const presenterToken = secret(), viewerToken = secret();
@@ -129,7 +133,7 @@ export function createApplication(overrides = {}, createServer = http.createServ
     // Rejected upgrades still own a raw HTTP/TLS socket. A peer can reset it
     // before WebSocketServer installs its handlers; this must not crash Node.
     socket.on('error', () => {});
-    if (req.url !== '/socket' || req.headers.origin !== origin || limited(req) || connections.size >= config.maxSessions * (config.maxViewers + 1) + 10) {
+    if (req.url !== '/socket' || req.headers.origin !== origin || connections.size >= config.maxSessions * (config.maxViewers + 1) + 10) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
     }
     let authentication;
@@ -138,6 +142,9 @@ export function createApplication(overrides = {}, createServer = http.createServ
       expire();
       const candidate = sessions.get(authentication.id);
       if (!candidate || !matches(authentication.token, authentication.role === 'presenter' ? candidate.presenterHash : candidate.viewerHash)) throw new Error('Session unavailable');
+    } catch { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+    try {
+      if (limited(req, 'upgrades')) throw new Error('Too many upgrades');
     } catch { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
     const selected = authentication.role === 'presenter' ? wss : viewerWss;
     selected.handleUpgrade(req, socket, head, ws => selected.emit('connection', ws, authentication));

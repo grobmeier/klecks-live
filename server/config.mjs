@@ -18,6 +18,7 @@ export function configuration(env = process.env) {
   }
   return {
     host, publicOrigin, hostKey, editorAccess,
+    trustedProxyAddresses: (env.TRUSTED_PROXY_ADDRESSES || '').split(',').map(address => address.trim()).filter(Boolean),
     port: integer(env, 'PORT', 5055, 0, 65535),
     maxSessions: integer(env, 'MAX_SESSIONS', 10, 1, 100),
     maxViewers: integer(env, 'MAX_VIEWERS', 25, 1, 100),
