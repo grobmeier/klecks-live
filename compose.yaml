@@ -8,6 +8,9 @@ services:
       HOST_ACCESS_KEY: ${HOST_ACCESS_KEY:?Set a host key with at least 32 characters}
       EDITOR_ACCESS: ${EDITOR_ACCESS:-private}
       TRUSTED_PROXY_ADDRESSES: ${TRUSTED_PROXY_ADDRESSES:-}
+      MEMORY_BUDGET_BYTES: 268435456
+      MAX_RETAINED_FRAME_BYTES: ${MAX_RETAINED_FRAME_BYTES:-33554432}
+      MAX_TOTAL_QUEUED_BYTES: ${MAX_TOTAL_QUEUED_BYTES:-33554432}
     ports:
       - "127.0.0.1:5055:5055"
     restart: unless-stopped

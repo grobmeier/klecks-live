@@ -52,7 +52,11 @@ presenter's local export controls before reload, restart or deployment.
 ## Resource controls
 
 The relay bounds sessions, viewers, frame size, frame rate, unauthenticated
-connections, queued output and authentication attempts. Sequence numbers and
+connections, queued output and authentication attempts. Startup validates
+combined media budgets against declared and detected runtime memory limits.
+Retained frames and unique queued payloads are accounted for globally, with
+headroom for active reception and connection state. Each session reserves only
+one presenter receive slot, including before its first authentication message. Sequence numbers and
 connection epochs prevent stale frames replacing newer views. Slow viewers
 are disconnected when their outgoing queue exceeds its budget.
 

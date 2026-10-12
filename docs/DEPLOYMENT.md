@@ -89,6 +89,9 @@ node --env-file=.env server/index.mjs
 | `HOST_ACCESS_KEY` | empty on loopback | Presenter password; at least 32 characters for non-loopback binding |
 | `EDITOR_ACCESS` | `private` with a password, otherwise `public` | Require sign-in for editor downloads or allow local drawing without sign-in |
 | `TRUSTED_PROXY_ADDRESSES` | empty | Comma-separated exact proxy peer IPs allowed to supply `X-Real-IP` |
+| `MEMORY_BUDGET_BYTES` | `268435456` | Declared process memory budget; cannot exceed a detected OS/container limit |
+| `MAX_RETAINED_FRAME_BYTES` | eighth of memory budget (`33554432`) | Aggregate retained frames across all sessions |
+| `MAX_TOTAL_QUEUED_BYTES` | eighth of memory budget (`33554432`) | Aggregate unique outgoing payload buffers |
 | `MAX_SESSIONS` | `10` | Simultaneous sessions, range 1–100 |
 | `MAX_VIEWERS` | `25` | Viewers per session, range 1–100 |
 | `FRAME_RATE` | `10` | Maximum updates per second, range 1–30 |
@@ -99,7 +102,9 @@ node --env-file=.env server/index.mjs
 
 Compose sets `HOST=0.0.0.0` inside the container, `PORT=5055`, and passes
 `PUBLIC_ORIGIN`, `HOST_ACCESS_KEY`, `EDITOR_ACCESS` and
-`TRUSTED_PROXY_ADDRESSES` from `.env`. Other settings
+`TRUSTED_PROXY_ADDRESSES`, `MAX_RETAINED_FRAME_BYTES` and
+`MAX_TOTAL_QUEUED_BYTES` from `.env`. It fixes `MEMORY_BUDGET_BYTES` at 256 MiB
+to match its container limit. Other settings
 must be added to the service's environment. For example, create
 `compose.override.yaml` for smoother updates and a smaller frame budget:
 
@@ -114,6 +119,15 @@ services:
 
 Apply configuration changes with `docker compose up -d`. Export active drawings
 first: recreating the container ends sessions and clears remembered access.
+
+Startup checks the session/frame product against the retained-frame budget.
+It also reserves space for concurrent reception and fragment assembly, queued
+output, connections
+and runtime headroom. Unsafe combinations are rejected. Increasing the declared
+memory budget requires matching container resources; a detected lower OS limit
+still prevents startup. Retained frames and unique queued payloads are charged
+at runtime, and outgoing pressure disconnects slow viewers instead of growing
+without a bound.
 
 ## Streaming and audience size
 

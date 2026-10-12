@@ -134,8 +134,7 @@ test('viewer cannot publish or stop a session', async t => {
 test('wrong capability and duplicate presenter are rejected', async t => {
   const app = await fixture(t); const { session } = await createSession(app);
   const first = await connection(app, auth(session, 'presenter')); await first.next(m => m.type === 'ready');
-  const duplicate = await connection(app, auth(session, 'presenter')); const duplicateClosed = once(duplicate.ws, 'close');
-  duplicate.ws.send(JSON.stringify({ type: 'auth', v: 1, ...auth(session, 'presenter') })); assert.equal((await duplicateClosed)[0], 1008);
+  await assert.rejects(() => connection(app, auth(session, 'presenter')), /403/);
   await assert.rejects(() => connection(app, { ...auth(session, 'presenter'), token: session.viewerToken }), /403/);
 });
 test('viewer capacity is enforced and freed on disconnect', async t => {

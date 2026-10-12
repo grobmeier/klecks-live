@@ -6,7 +6,7 @@ import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { decodeFrame, imageDimensions, HEADER_LIMIT, VERSION, socketAuthentication } from '../public/protocol.js';
-import { configuration, validateTransport } from './config.mjs';
+import { configuration, validateTransport, validateMediaBudget } from './config.mjs';
 import { clientAddressResolver } from './client-address.mjs';
 import { PresenterAccess } from './presenter-access.mjs';
 
@@ -21,6 +21,7 @@ const PUBLIC_FILES = new Set(['/login.html', '/login.js', '/viewer.html', '/view
 export function createApplication(overrides = {}, createServer = http.createServer) {
   const config = { ...configuration({}), ...overrides, editorAccess: overrides.editorAccess ?? (overrides.hostKey ? 'private' : 'public') };
   validateTransport(config);
+  validateMediaBudget(config);
   if (!['private', 'public'].includes(config.editorAccess)) throw new Error('EDITOR_ACCESS must be private or public');
   if (config.editorAccess === 'private' && !config.hostKey) throw new Error('Private editor access requires HOST_ACCESS_KEY');
   const sessions = new Map();
@@ -33,6 +34,10 @@ export function createApplication(overrides = {}, createServer = http.createServ
   const wss = new WebSocketServer({ ...options, maxPayload: config.maxFrameBytes + HEADER_LIMIT + 4 });
   const viewerWss = new WebSocketServer({ ...options, maxPayload: 2048 });
   const connections = new Set();
+  const pendingPresenters = new Set();
+  const queuedMessages = new Map();
+  let retainedBytes = 0, queuedBytes = 0;
+  const clearFrame = session => { retainedBytes -= session.frame?.length || 0; session.frame = undefined; };
   const hostHash = digest(config.hostKey);
   const headers = {
     'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
@@ -42,14 +47,26 @@ export function createApplication(overrides = {}, createServer = http.createServ
   const json = (res, status, value, extraHeaders = {}) => { res.writeHead(status, { ...headers, 'Content-Type': 'application/json', ...extraHeaders }); res.end(JSON.stringify(value)); };
   const send = (socket, data, binary = false) => {
     if (socket.readyState !== WebSocket.OPEN) return;
-    if (socket.bufferedAmount > config.maxQueuedBytes) { socket.terminate(); return; }
-    socket.send(binary ? data : JSON.stringify(data), { binary });
+    const payload = binary ? data : JSON.stringify(data);
+    const bytes = binary ? payload.length : Buffer.byteLength(payload);
+    let entry = queuedMessages.get(payload);
+    if (socket.bufferedAmount > config.maxQueuedBytes || (!entry && queuedBytes + bytes > config.maxTotalQueuedBytes)) { socket.terminate(); return; }
+    if (!entry) { entry = { bytes, references: 0 }; queuedMessages.set(payload, entry); queuedBytes += bytes; }
+    entry.references++;
+    let released = false;
+    const release = () => {
+      if (released) return; released = true;
+      socket.pendingSends.delete(release);
+      if (--entry.references === 0) { queuedMessages.delete(payload); queuedBytes -= entry.bytes; }
+    };
+    socket.pendingSends.add(release);
+    try { socket.send(payload, { binary }, release); } catch { release(); socket.terminate(); }
   };
   const status = session => ({ type: 'status', v: VERSION, epoch: session.epoch, state: session.state, viewers: session.viewers.size, expiresAt: session.expiresAt });
   const broadcastStatus = session => { const message = status(session); for (const socket of session.viewers) send(socket, message); if (session.presenter) send(session.presenter, message); };
   const end = (session, reason) => {
     sessions.delete(session.id);
-    session.frame = undefined;
+    clearFrame(session);
     for (const socket of [...session.viewers, session.presenter].filter(Boolean)) {
       send(socket, { type: 'ended', reason }); socket.close(1000, 'Session ended');
     }
@@ -147,11 +164,20 @@ export function createApplication(overrides = {}, createServer = http.createServ
     try {
       if (limited(req, 'upgrades')) throw new Error('Too many upgrades');
     } catch { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+    if (authentication.role === 'presenter') {
+      const candidate = sessions.get(authentication.id);
+      if (candidate.presenter || pendingPresenters.has(authentication.id)) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+      pendingPresenters.add(authentication.id);
+      let reserved = true;
+      authentication.releasePending = () => { if (reserved) pendingPresenters.delete(authentication.id); reserved = false; };
+      socket.once('close', authentication.releasePending);
+    }
     const selected = authentication.role === 'presenter' ? wss : viewerWss;
     selected.handleUpgrade(req, socket, head, ws => selected.emit('connection', ws, authentication));
   });
   const connected = (socket, authentication) => {
     connections.add(socket);
+    socket.pendingSends = new Set();
     let session, role;
     socket.alive = true;
     socket.on('pong', () => { socket.alive = true; });
@@ -173,7 +199,8 @@ export function createApplication(overrides = {}, createServer = http.createServ
           session = candidate;
           clearTimeout(timeout);
           if (role === 'presenter') {
-            session.presenter = socket; session.epoch = randomUUID(); session.seq = 0; session.frame = undefined; session.lastFrameAt = Date.now(); session.frameTokens = 2; session.state = 'waiting';
+            authentication.releasePending();
+            session.presenter = socket; session.epoch = randomUUID(); session.seq = 0; clearFrame(session); session.lastFrameAt = Date.now(); session.frameTokens = 2; session.state = 'waiting';
           } else session.viewers.add(socket);
           send(socket, { ...status(session), type: 'ready' });
           if (role === 'viewer' && session.frame) send(socket, session.frame, true);
@@ -192,6 +219,8 @@ export function createApplication(overrides = {}, createServer = http.createServ
           session.frameTokens = Math.min(2, session.frameTokens + (now - session.lastFrameAt) * config.fps / 1000);
           session.lastFrameAt = now;
           if (session.frameTokens < 1) return;
+          if (retainedBytes - (session.frame?.length || 0) + data.length > config.maxRetainedFrameBytes) throw new Error('Retained frame budget exceeded');
+          retainedBytes += data.length - (session.frame?.length || 0);
           session.frameTokens--; session.seq = header.seq; session.frame = Buffer.from(data);
           const stateChanged = session.state !== 'live'; session.state = 'live';
           if (stateChanged) broadcastStatus(session);
@@ -201,13 +230,15 @@ export function createApplication(overrides = {}, createServer = http.createServ
           const message = JSON.parse(data.toString());
           if (message.type === 'stop') end(session, 'stopped');
           else if (message.type === 'pause') { session.state = 'paused'; broadcastStatus(session); }
-          else if (message.type === 'resume') { session.state = 'waiting'; session.frame = undefined; session.lastFrameAt = Date.now(); session.frameTokens = 1; broadcastStatus(session); }
+          else if (message.type === 'resume') { session.state = 'waiting'; clearFrame(session); session.lastFrameAt = Date.now(); session.frameTokens = 1; broadcastStatus(session); }
           else throw new Error('Invalid command');
         }
       } catch { socket.close(1008, 'Connection rejected'); }
     });
     socket.on('close', () => {
       connections.delete(socket);
+      authentication.releasePending?.();
+      for (const release of socket.pendingSends) release();
       clearTimeout(timeout);
       if (!session || !sessions.has(session.id)) return;
       if (role === 'presenter' && session.presenter === socket) { session.presenter = undefined; session.state = 'paused'; session.disconnectedAt = Date.now(); }
