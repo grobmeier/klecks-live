@@ -120,8 +120,11 @@ See [GitHub Actions](ACTIONS.md) for provisioning and release operation, and
 
 ## Report a vulnerability
 
-Report vulnerabilities privately using the contact details on the
-[maintainer's GitHub profile](https://github.com/grobmeier). Include the affected
-revision, configuration and a minimal reproduction with synthetic data. Keep
-passwords, device credentials, viewer links and real drawings out of reports.
-Public issues are for reports that do not expose exploitable security details.
+Use GitHub's [private vulnerability reporting](https://github.com/grobmeier/klecks-live/security/advisories/new)
+to report a security issue. You can also use the contact details on the
+[maintainer's GitHub profile](https://github.com/grobmeier).
+
+Include the affected revision, configuration and a minimal reproduction with
+synthetic data. Keep passwords, device credentials, viewer links and real
+drawings out of reports. Public issues are for reports that do not expose
+exploitable security details.
