@@ -31,7 +31,9 @@ to that host and configure an HTTPS proxy. With Caddy:
 
 ```caddyfile
 draw.example.org {
-    reverse_proxy 127.0.0.1:5055
+    reverse_proxy 127.0.0.1:5055 {
+        header_up X-Real-IP {remote_host}
+    }
 }
 ```
 
@@ -41,8 +43,9 @@ Nginx, set the upgrade headers, disable buffering for `/socket`, and use an idle
 timeout longer than the relay's 15-second heartbeat.
 
 Keep the application port on host loopback. Expose only the proxy's HTTP/HTTPS
-ports. Exclude password headers, cookies, request bodies and socket
-authentication messages from logs. See [Security](SECURITY.md) for the access
+ports. Exclude `X-Host-Key`, `Cookie`, `Authorization`,
+`Sec-WebSocket-Protocol`, request bodies and socket authentication messages from
+logs. See [Security](SECURITY.md) for the access
 model and runtime restrictions.
 
 For local Mac-to-iPad access without a public domain, use the
@@ -82,9 +85,14 @@ node --env-file=.env server/index.mjs
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Listen interface; non-loopback binding requires an explicit origin and password |
 | `PORT` | `5055` | HTTP port; `0` selects an available port |
-| `PUBLIC_ORIGIN` | inferred on loopback | Exact external HTTP(S) origin; use HTTPS for network access |
+| `PUBLIC_ORIGIN` | inferred on loopback | Exact external origin; HTTPS required except on loopback |
 | `HOST_ACCESS_KEY` | empty on loopback | Presenter password; at least 32 characters for non-loopback binding |
 | `EDITOR_ACCESS` | `private` with a password, otherwise `public` | Require sign-in for editor downloads or allow local drawing without sign-in |
+| `TRUSTED_PROXY_ADDRESSES` | empty | Comma-separated exact proxy peer IPs allowed to supply `X-Real-IP` |
+| `MEMORY_BUDGET_BYTES` | `268435456` | Declared process memory budget; cannot exceed a detected OS/container limit |
+| `MAX_RETAINED_FRAME_BYTES` | eighth of memory budget (`33554432`) | Aggregate retained frames across all sessions |
+| `MAX_TOTAL_QUEUED_BYTES` | eighth of memory budget (`33554432`) | Aggregate unique outgoing payload buffers |
+| `MAX_INGRESS_BYTES_PER_SECOND` | quarter of memory budget (`67108864`) | Aggregate presenter ingress across all sessions |
 | `MAX_SESSIONS` | `10` | Simultaneous sessions, range 1–100 |
 | `MAX_VIEWERS` | `25` | Viewers per session, range 1–100 |
 | `FRAME_RATE` | `10` | Maximum updates per second, range 1–30 |
@@ -94,7 +102,10 @@ node --env-file=.env server/index.mjs
 | `RECONNECT_GRACE_MS` | `120000` | Presenter recovery window in milliseconds, maximum 10 minutes |
 
 Compose sets `HOST=0.0.0.0` inside the container, `PORT=5055`, and passes
-`PUBLIC_ORIGIN`, `HOST_ACCESS_KEY` and `EDITOR_ACCESS` from `.env`. Other settings
+`PUBLIC_ORIGIN`, `HOST_ACCESS_KEY`, `EDITOR_ACCESS` and
+`TRUSTED_PROXY_ADDRESSES`, `MAX_RETAINED_FRAME_BYTES` and
+`MAX_TOTAL_QUEUED_BYTES` and `MAX_INGRESS_BYTES_PER_SECOND` from `.env`. It fixes `MEMORY_BUDGET_BYTES` at 256 MiB
+to match its container limit. Other settings
 must be added to the service's environment. For example, create
 `compose.override.yaml` for smoother updates and a smaller frame budget:
 
@@ -110,12 +121,26 @@ services:
 Apply configuration changes with `docker compose up -d`. Export active drawings
 first: recreating the container ends sessions and clears remembered access.
 
+Startup checks the session/frame product against the retained-frame budget.
+It also reserves space for concurrent reception and fragment assembly, queued
+output, connections
+and runtime headroom. Unsafe combinations are rejected. Increasing the declared
+memory budget requires matching container resources; a detected lower OS limit
+still prevents startup. Retained frames and unique queued payloads are charged
+at runtime, and outgoing pressure disconnects slow viewers instead of growing
+without a bound.
+
 ## Streaming and audience size
 
 `FRAME_RATE` controls update frequency. At 16 fps, the capture interval is
 62.5 ms. Encoding counts toward that interval; the publisher keeps one active
 encoder and the newest pending view rather than building a backlog. Viewers
 paint completed frames and then decode their newest pending frame.
+
+Incoming frames and control commands pass per-presenter message/byte budgets
+and an aggregate byte budget before parsing or status fanout. Small scheduling
+bursts are allowed; sustained excess ends only the abusive session and
+invalidates its capabilities.
 
 `MAX_IMAGE_EDGE` controls transmitted detail. The viewer fits that image to its
 window while preserving the aspect ratio; fullscreen increases available space
@@ -136,9 +161,19 @@ to 64.
 
 `GET /health` reports process availability. The relay uses a five-second socket
 authentication deadline, a 3 MiB outgoing queue limit and 60 session/sign-in
-attempts per minute per remote address. Behind a proxy, that address budget is
-shared by the proxy's clients. Additional per-client limits belong at the proxy;
-the relay does not trust arbitrary forwarded IP headers.
+attempts per minute per client in separate buckets for password failures,
+successful sign-ins, session creation and authenticated WebSocket upgrades.
+Failed anonymous requests do not consume authenticated session or reconnect
+budgets.
+
+For a reverse proxy, set `TRUSTED_PROXY_ADDRESSES` to the exact peer IP addresses
+seen by the app and configure the proxy to overwrite `X-Real-IP` with its socket
+peer address. Caddy's example above does this using `{remote_host}`; it does not
+trust a visitor's forwarded headers. A host proxy reaching Docker often appears
+as the container network's gateway, rather than host loopback. Identify that
+address from your network configuration. Never allow every private address or
+use an unrestricted trust setting. Missing or malformed metadata from a trusted
+proxy is rejected. Forwarded headers from other peers are ignored.
 
 Sessions and the latest shared image live in memory. Stop, expiry, restart and
 rollback discard them. Export locally before closing or reloading the presenter.

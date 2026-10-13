@@ -43,9 +43,7 @@ test('unchecked remembering uses a browser-session cookie and loopback developme
   assert.match(access.header, /^live-draw-presenter=.*; Path=\/; HttpOnly; SameSite=Strict$/);
   assert.ok(access.status.expiresAt > Date.now() + 7 * 60 * 60 * 1000);
   assert.equal((await request(app, '/api/sessions', { method: 'POST', cookie: access.cookie })).status, 201);
-  const remote = await fixture(t, { publicOrigin: 'http://draw.example.org' });
-  const denied = await login(remote); assert.equal(denied.response.status, 403); assert.equal(denied.header, null);
-  assert.equal(denied.status.error, 'Presenter sign-in requires HTTPS');
+  assert.throws(() => createApplication({ publicOrigin: 'http://draw.example.org' }), /HTTPS/);
 });
 
 test('cookie creation and revocation enforce origin and method without changing valid access', async t => {
@@ -107,10 +105,11 @@ test('forged, duplicated and viewer capabilities cannot act as device logins', a
   ]) assert.equal((await request(app, '/api/sessions', { method: 'POST', cookie })).status, 403);
 });
 
-test('presenter password attempts share the bounded request budget', async t => {
+test('failed presenter passwords are bounded without consuming valid sign-in access', async t => {
   const app = await fixture(t);
   for (let count = 0; count < 60; count++) assert.equal((await login(app, { password: 'wrong' })).response.status, 403);
-  assert.equal((await login(app)).response.status, 429);
+  assert.equal((await login(app, { password: 'wrong' })).response.status, 429);
+  assert.equal((await login(app)).response.status, 200);
 });
 
 test('keyless loopback needs no presenter login and never issues a device cookie', async t => {

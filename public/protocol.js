@@ -50,3 +50,38 @@ export function imageDimensions(bytes, mime) {
   }
   throw new Error('Unsupported image encoding');
 }
+
+// Capabilities travel in an HTTPS upgrade header, never in the request URL.
+export function socketProtocols(auth) {
+  const encoded = encodeURIComponent(JSON.stringify({ type: 'auth', v: VERSION, ...auth }))
+    .replace(/[!'()*]/g, character => '%' + character.charCodeAt(0).toString(16));
+  return [`live-draw.v${VERSION}`, `live-draw-auth.${encoded}`];
+}
+
+export function socketAuthentication(header) {
+  if (typeof header !== 'string' || header.length > 8192) throw new Error('Invalid socket authentication');
+  const protocols = header.split(',').map(value => value.trim());
+  if (protocols.length !== 2 || protocols[0] !== `live-draw.v${VERSION}` || !protocols[1].startsWith('live-draw-auth.')) throw new Error('Invalid socket authentication');
+  const json = decodeURIComponent(protocols[1].slice('live-draw-auth.'.length));
+  if (encoder.encode(json).length > 2048) throw new Error('Invalid socket authentication');
+  return validateSocketAuthentication(JSON.parse(json));
+}
+
+export function secureOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname));
+  } catch { return false; }
+}
+
+export function validateSocketAuthentication(auth) {
+  if (!auth || auth.type !== 'auth' || auth.v !== VERSION || !['presenter', 'viewer'].includes(auth.role) ||
+      typeof auth.id !== 'string' || auth.id.length > 64 || typeof auth.token !== 'string' || auth.token.length > 256) throw new Error('Invalid socket authentication');
+  return { type: 'auth', v: VERSION, id: auth.id, role: auth.role, token: auth.token };
+}
+
+export async function socketAvailable(auth, request) {
+  const response = await request('/api/socket-access', { method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'auth', v: VERSION, ...auth }) });
+  return response.status !== 403;
+}

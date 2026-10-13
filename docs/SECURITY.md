@@ -6,7 +6,10 @@ sessions, device credentials and the latest shared image in memory.
 ## Presenter access
 
 `HOST_ACCESS_KEY` is the operator-managed presenter password. Non-loopback
-binding requires an explicit origin and a password of at least 32 characters.
+binding requires an explicit HTTPS origin and a password of at least 32
+characters. Remote HTTP origins are rejected at startup, including behind a
+loopback proxy listener. Browser clients refuse to transmit passwords and
+session capabilities over remote HTTP.
 Private editor mode also requires a password and protects editor HTML, scripts
 and Klecks bundles before they are downloaded.
 
@@ -30,7 +33,11 @@ in a browser continues to run locally after access is revoked.
 Each session has separate presenter and viewer capabilities. Presenter control
 stays in the presenter's `sessionStorage`; the viewer link carries only its
 viewer capability in the URL fragment. Fragments are absent from HTTP request
-URLs. WebSocket authentication carries the capability after connection.
+URLs. WebSocket upgrades carry the capability in `Sec-WebSocket-Protocol`,
+which must be excluded from proxy logs. The relay validates it before accepting
+the connection and binds the first authentication message to the same session
+and role. Viewer sockets accept at most 2 KiB per incoming message; only valid
+presenter capabilities unlock the frame-sized receive budget.
 
 A viewer capability grants read-only access to that session. Anyone holding
 the link can watch until stop or expiry; viewers do not have named accounts.
@@ -45,13 +52,24 @@ presenter's local export controls before reload, restart or deployment.
 ## Resource controls
 
 The relay bounds sessions, viewers, frame size, frame rate, unauthenticated
-connections, queued output and authentication attempts. Sequence numbers and
-connection epochs prevent stale frames replacing newer views. Slow viewers
-are disconnected when their outgoing queue exceeds its budget.
+connections, queued output and authentication attempts. Startup validates
+combined media budgets against declared and detected runtime memory limits.
+Retained frames and unique queued payloads are accounted for globally, with
+headroom for active reception and connection state. Each session reserves only
+one presenter receive slot, including before its first authentication message. Sequence numbers and
+connection epochs prevent stale frames replacing newer views. Presenter message
+and byte budgets, plus an aggregate ingress byte budget, apply to image frames
+and control commands before parsing or status fanout. Sustained excess ends that
+session and revokes its capabilities. Slow viewers are disconnected when their
+outgoing queue exceeds its budget.
 
-The address-based request limit applies to the proxy address behind a reverse
-proxy. Configure per-client rate limits at the proxy as needed and keep the
-application port on host loopback. Application budgets complement host and
+Client limits use the socket peer address by default. Only exact configured
+`TRUSTED_PROXY_ADDRESSES` may supply a single valid `X-Real-IP`; the proxy must
+overwrite that header from its own peer address. Other forwarded headers are
+ignored. Password failures, sign-ins, session creation and authenticated socket
+upgrades have independent budgets. Anonymous failures cannot exhaust an
+authorized client's session or reconnect budget. Keep the application port on
+host loopback. Application budgets complement host and
 network controls; they do not provide volumetric attack protection.
 
 The supplied container runs as UID/GID 1000 without a shell, npm or build tools.

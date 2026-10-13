@@ -43,7 +43,9 @@ The smoke script creates a uniquely named non-root container on a temporary
 loopback port with the same read-only filesystem, capability and resource
 limits as Compose. It generates its own presenter password, checks packaged
 assets, frame delivery, late joins, viewer permissions, session invalidation,
-Docker health and graceful shutdown, then removes that container.
+Docker health and graceful shutdown, then removes that container. It uses the
+private loopback HTTP backend with an HTTPS public origin to model proxy
+termination. The HTTPS/WSS checks below verify TLS separately.
 
 ## Local HTTPS/WSS
 

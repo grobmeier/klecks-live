@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { directory, load } from './lan-config.mjs';
-import { encodeFrame, decodeFrame } from '../public/protocol.js';
+import { encodeFrame, decodeFrame, socketProtocols } from '../public/protocol.js';
 import { createApplication } from '../server/app.mjs';
 import { cp, mkdir } from 'node:fs/promises';
 
@@ -45,7 +45,7 @@ function request(path, { trusted = true, method = 'GET', key, cookie, remembered
 }
 
 async function connect(credentials, origin = config.origin) {
-  const ws = new WebSocket(config.origin.replace(/^https/, 'wss') + '/socket', { ca, headers: { Origin: origin } });
+  const ws = new WebSocket(config.origin.replace(/^https/, 'wss') + '/socket', socketProtocols(credentials || {}), { ca, headers: { Origin: origin } });
   sockets.add(ws); ws.on('error', () => {});
   const messages = [], waiters = [];
   ws.on('message', (data, binary) => {

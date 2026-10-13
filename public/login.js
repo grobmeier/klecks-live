@@ -1,3 +1,4 @@
+import { secureOrigin } from './protocol.js';
 const $ = id => document.getElementById(id);
 let signingIn = false;
 function error(message) { $('login-error').textContent = message; $('login-error').hidden = false; }
@@ -10,6 +11,7 @@ $('login-form').addEventListener('submit', async event => {
   if (signingIn) return;
   signingIn = true; buttons(); $('login-error').hidden = true;
   try {
+    if (!secureOrigin(location.origin)) throw new Error('Use HTTPS to sign in to this server.');
     const response = await fetch('/api/presenter-access', { method: 'POST', credentials: 'same-origin', headers: {
       'X-Host-Key': $('host-key').value.trim(), 'X-Remember-Device': String($('remember-device').checked),
     } });

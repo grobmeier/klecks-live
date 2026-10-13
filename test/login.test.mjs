@@ -2,18 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
+import { secureOrigin } from '../public/protocol.js';
 
 const html = await readFile(new URL('../public/login.html', import.meta.url), 'utf8');
-const source = await readFile(new URL('../public/login.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../public/login.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '');
 const presenterHtml = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
-function login({ response = () => ({ ok: true, json: async () => ({ authorized: true }) }), cookieAccepted = true } = {}) {
+function login({ response = () => ({ ok: true, json: async () => ({ authorized: true }) }), cookieAccepted = true, origin = 'https://draw.example.org' } = {}) {
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, {
     value: '', checked: false, hidden: true, disabled: false, textContent: '', events: new Map(),
     addEventListener(type, listener) { this.events.set(type, listener); }, focus() { this.focused = true; },
   }]));
   const requests = [], navigations = [];
   runInNewContext(source, {
-    document: { getElementById: id => elements.get(id) }, location: { replace: path => navigations.push(path) },
+    document: { getElementById: id => elements.get(id) }, secureOrigin, location: { origin, replace: path => navigations.push(path) },
     fetch: async (path, options) => {
       requests.push({ path, ...options });
       return options.method === 'POST' ? response() : { ok: true, json: async () => ({ authorized: cookieAccepted }) };
@@ -61,4 +62,11 @@ test('pending sign-in prevents duplicate submissions and a network failure permi
   assert.equal(app.requests.length, 1); assert.equal(app.get('submit-login').disabled, true);
   fail(new TypeError('Failed to fetch')); await submitted;
   assert.match(app.get('login-error').textContent, /Could not reach/); assert.equal(app.get('submit-login').disabled, false);
+});
+
+test('remote HTTP sign-in refuses to transmit the presenter password', async () => {
+  const app = login({ origin: 'http://draw.example.org' });
+  app.get('host-key').value = 'synthetic-password'; await app.submit();
+  assert.equal(app.requests.length, 0); assert.equal(app.navigations.length, 0);
+  assert.match(app.get('login-error').textContent, /HTTPS/);
 });

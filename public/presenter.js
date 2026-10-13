@@ -1,5 +1,5 @@
 import { FramePublisher } from './capture.js';
-import { VERSION } from './protocol.js';
+import { VERSION, socketProtocols, secureOrigin, socketAvailable } from './protocol.js';
 const $ = id => document.getElementById(id);
 const frame = $('editor');
 let editorReady = frame.dataset.ready === 'true', session, socket, publisher, unsubscribe, reconnectTimer, reconnectDelay = 500, stopping = false, terminal = false, starting = false, forgetting = false, exporting = false, sequence = 0;
@@ -77,15 +77,16 @@ function finish(message) {
 }
 function connect() {
   if (!session || !editorReady || terminal) return;
+  if (!secureOrigin(location.origin)) { finish('Use HTTPS to share this drawing.'); return; }
   clearTimeout(reconnectTimer);
   state(stopping ? 'Stopping sharing…' : 'Connecting…');
-  socket = new WebSocket(new URL('/socket', location.origin).href.replace(/^http/, 'ws')); socket.binaryType = 'arraybuffer';
+  socket = new WebSocket(new URL('/socket', location.origin).href.replace(/^http/, 'ws'), socketProtocols({ role: 'presenter', id: session.id, token: session.presenterToken })); socket.binaryType = 'arraybuffer';
   const current = socket;
   current.addEventListener('open', () => current.send(JSON.stringify({ type: 'auth', v: VERSION, role: 'presenter', id: session.id, token: session.presenterToken })));
   current.addEventListener('message', event => {
     if (current !== socket || typeof event.data !== 'string') return;
     const message = JSON.parse(event.data);
-    if (message.type === 'ended') { finish(message.reason === 'expired' ? 'The session expired. Start another when you are ready.' : ''); return; }
+    if (message.type === 'ended') { finish(message.reason === 'expired' ? 'The session expired. Start another when you are ready.' : message.reason === 'abuse' ? 'Sharing stopped because drawing updates exceeded the server limits.' : ''); return; }
     if (message.type === 'ready') {
       reconnectDelay = 500;
       disconnectCapture(); sequence = 0;
@@ -99,10 +100,17 @@ function connect() {
       if (!stopping) state(message.state === 'live' ? 'Live' : message.state === 'paused' ? 'Sharing paused' : 'Connecting…', message.state === 'live');
     }
   });
-  current.addEventListener('close', event => {
+  current.addEventListener('close', async event => {
     if (current !== socket || terminal || !session) return;
     disconnectCapture();
     if (event.code === 1008 || session.expiresAt <= Date.now()) { finish('Session unavailable. Start a new session to share again.'); return; }
+    try {
+      if (!await socketAvailable({ role: 'presenter', id: session.id, token: session.presenterToken }, fetch)) {
+        if (current !== socket || terminal || !session) return;
+        finish('Session unavailable. Start a new session to share again.'); return;
+      }
+    } catch { /* Retry when the network prevents checking session access. */ }
+    if (current !== socket || terminal || !session) return;
     state(stopping ? 'Stopping when reconnected…' : 'Reconnecting…');
     reconnectTimer = setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(10000, reconnectDelay * 2);
   });
@@ -113,6 +121,7 @@ async function start(hostKey = '') {
   starting = true; buttons();
   $('key-error').hidden = true;
   try {
+    if (!secureOrigin(location.origin)) throw new Error('Use HTTPS to share this drawing.');
     if (hostKey) {
       const login = await fetch('/api/presenter-access', { method: 'POST', credentials: 'same-origin', headers: { 'X-Host-Key': hostKey.trim(), 'X-Remember-Device': String($('remember-device').checked) } });
       const result = await login.json();

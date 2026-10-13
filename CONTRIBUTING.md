@@ -29,7 +29,9 @@ npm run prepare:klecks -- --from /path/to/klecks
 ```
 
 Preparation archives the pinned Git commit, replaces only `.build/klecks` and
-applies the explicit patches. It does not include uncommitted checkout changes.
+applies the explicit patches. Object verification and archiving disable Git
+replacement objects. Repository-local replacement references and uncommitted
+checkout changes are excluded.
 The build runs icon, language and Parcel commands explicitly with npm lifecycle
 hooks disabled.
 
