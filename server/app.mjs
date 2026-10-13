@@ -228,9 +228,10 @@ export function createApplication(overrides = {}, createServer = http.createServ
         if (!sessions.has(session.id)) throw new Error('Session ended');
         if (role !== 'presenter' || session.presenter !== socket) throw new Error('Viewer is read-only');
         if (Date.now() >= session.expiresAt) { end(session, 'expired'); return; }
+        // Charge every presenter message before parsing or broadcasting status.
+        if (!messages.take(1) || !bytes.take(data.length) || !ingress.take(data.length)) { end(session, 'abuse'); socket.terminate(); return; }
         if (binary) {
-          if (!messages.take(1) || !bytes.take(data.length) || !ingress.take(data.length)) { end(session, 'abuse'); socket.terminate(); return; }
-          // Charge ingress and publication before parsing; tolerate a two-frame burst.
+          // Charge publication before parsing; tolerate a two-frame burst.
           const now = Date.now();
           session.frameTokens = Math.min(2, session.frameTokens + (now - session.lastFrameAt) * config.fps / 1000);
           session.lastFrameAt = now;

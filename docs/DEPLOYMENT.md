@@ -137,9 +137,10 @@ without a bound.
 encoder and the newest pending view rather than building a backlog. Viewers
 paint completed frames and then decode their newest pending frame.
 
-Incoming frames also pass per-presenter message/byte budgets and an aggregate
-byte budget before parsing. Small scheduling bursts are allowed; sustained
-excess ends only the abusive session and invalidates its capabilities.
+Incoming frames and control commands pass per-presenter message/byte budgets
+and an aggregate byte budget before parsing or status fanout. Small scheduling
+bursts are allowed; sustained excess ends only the abusive session and
+invalidates its capabilities.
 
 `MAX_IMAGE_EDGE` controls transmitted detail. The viewer fits that image to its
 window while preserving the aspect ratio; fullscreen increases available space

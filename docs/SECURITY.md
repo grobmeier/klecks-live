@@ -58,9 +58,10 @@ Retained frames and unique queued payloads are accounted for globally, with
 headroom for active reception and connection state. Each session reserves only
 one presenter receive slot, including before its first authentication message. Sequence numbers and
 connection epochs prevent stale frames replacing newer views. Presenter message
-and byte budgets, plus an aggregate ingress byte budget, run before frame
-parsing. Sustained excess ends that session and revokes its capabilities. Slow viewers
-are disconnected when their outgoing queue exceeds its budget.
+and byte budgets, plus an aggregate ingress byte budget, apply to image frames
+and control commands before parsing or status fanout. Sustained excess ends that
+session and revokes its capabilities. Slow viewers are disconnected when their
+outgoing queue exceeds its budget.
 
 Client limits use the socket peer address by default. Only exact configured
 `TRUSTED_PROXY_ADDRESSES` may supply a single valid `X-Real-IP`; the proxy must
